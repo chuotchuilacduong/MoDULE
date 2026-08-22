@@ -5,6 +5,7 @@ rather than touching learn.py/unlearn.py.
 """
 import argparse
 import random
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,8 @@ import wandb
 import yaml
 from torch.utils.data import DataLoader, Subset, random_split
 from torchvision import transforms
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dataset.pytorch_dataset.pacs import PACSDataset
 from dataset.transform.test_transform import get_test_transform

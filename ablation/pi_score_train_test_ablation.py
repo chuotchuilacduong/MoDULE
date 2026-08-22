@@ -10,12 +10,15 @@ still hold on held-out TEST images of the same class/domain? This is a pure lear
 diagnostic (single checkpoint, plain 80/10/10 train/test split, no forget/retain involved).
 """
 import argparse
+import sys
 from pathlib import Path
 
 import torch
 import wandb
 import yaml
 from torch.utils.data import DataLoader, random_split
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dataset.pytorch_dataset.pacs import PACSDataset
 from dataset.transform.test_transform import get_test_transform

@@ -8,6 +8,11 @@ from approx_algo.gradient_ascent import Gradient_Ascent
 import inspect
 
 from metric.fa import forget_acc
+from module_diagnostics import (
+    extract_router_diagnostics,
+    print_router_diagnostics,
+    compute_localization_diagnostics,
+)
 
 class Module(Gradient_Ascent):
     def __init__(
@@ -37,9 +42,13 @@ class Module(Gradient_Ascent):
         selection_option="diff",
         update_scope="selected_experts_and_head",
         device="cuda",
-        # optional: domain names for periodic mass-per-domain logging (PACS/OfficeHome only)
+        # optional: domain/class names for periodic router diagnostics (PACS/OfficeHome only --
+        # datasets without a domain field simply skip this, see `run_full_router_diag` in learn()).
         domain_names=None,
+        class_names=None,
         domain_mass_log_every=10,
+        dead_expert_threshold=0.01,
+        run_eq7_diagnostics=False,
     ):
         super().__init__(
             model=model,
@@ -76,7 +85,63 @@ class Module(Gradient_Ascent):
         self.update_scope = update_scope
 
         self.domain_names = domain_names
+        self.class_names = class_names
         self.domain_mass_log_every = domain_mass_log_every
+        self.dead_expert_threshold = dead_expert_threshold
+        self.run_eq7_diagnostics = run_eq7_diagnostics
+
+        # full router diagnostics (entropy, dead experts, per-domain mass, per-expert
+        # specialization) need a (image, label, domain) dataloader and class names --
+        # only available for domain-labeled datasets like PACS/OfficeHome. Computed once
+        # here so both learn() and unlearn() can reuse it without recomputing.
+        moe_layers_ref = [m for m in self.model.modules() if m.__class__.__name__ == 'DeepMoELayer']
+        self.num_experts = moe_layers_ref[0].num_experts if moe_layers_ref else 0
+        self.gate_k = moe_layers_ref[0].gate_k if moe_layers_ref else 0
+        self.run_full_router_diag = bool(self.domain_names) and bool(self.class_names) and self.num_experts > 0
+        self.forget_domain_idx = (
+            self.domain_names.index('art_painting')
+            if self.run_full_router_diag and 'art_painting' in self.domain_names else 0
+        )
+
+    def _run_final_router_diagnostics(self, phase):
+        """Runs once (not periodically -- each split below is a full extra pass over its
+        loader, and Eq.7 adds two more, so this is only worth paying for at the end of
+        learn()/unlearn(), not every epoch). Reports TRAIN and TEST separately so you can
+        see whether routing learned on TRAIN still holds on held-out TEST images, instead
+        of only ever inspecting one split."""
+        if not self.run_full_router_diag:
+            return
+
+        for split_name, loader in [("TRAIN", self.train_loader), ("TEST", self.test_loader)]:
+            split_label = f"{phase}_{split_name}"
+            print(f"\n[*] Running full router diagnostics on {split_label} split...")
+            diag = extract_router_diagnostics(
+                model=self.model, dataloader=loader, device=self.device,
+                num_experts=self.num_experts, gate_k=self.gate_k,
+                num_classes=len(self.class_names), num_domains=len(self.domain_names),
+            )
+            print_router_diagnostics(
+                diag, num_experts=self.num_experts, gate_k=self.gate_k,
+                domain_names=self.domain_names, class_names=self.class_names,
+                forget_domain_idx=self.forget_domain_idx, dead_expert_threshold=self.dead_expert_threshold,
+                log_to_wandb=True, split_label=split_label,
+            )
+
+        if self.run_eq7_diagnostics:
+            print(f"\n[*] Running Eq.7 localization diagnostics (FEM/ARR/RFO) [{phase}]...")
+            FEM, ARR, RFO = compute_localization_diagnostics(
+                model=self.model, forget_loader=self.forget_loader, retain_loader=self.retain_loader,
+                device=self.device, num_experts=self.num_experts, gate_k=self.gate_k,
+                k_u=self.k_u, alpha=self.alpha,
+            )
+            print(f"Forget-expert routing mass (FEM):    {FEM:.4f}")
+            print(f"At-risk retain ratio (ARR):          {ARR:.4f}")
+            print(f"Retain-forget routing overlap (RFO): {RFO:.4f}")
+            wandb.log({
+                f"eq7_{phase.lower()}/FEM": FEM,
+                f"eq7_{phase.lower()}/ARR": ARR,
+                f"eq7_{phase.lower()}/RFO": RFO,
+            })
 
     def _loss_sparse(self, pi):
         entropy = -(pi * (pi + 1e-8).log()).sum(dim=-1)
@@ -387,6 +452,8 @@ class Module(Gradient_Ascent):
         fa_score, ra_score, ta_score, mia_score = self.evaluate()
         print(f"[Final Metrics] ra: {ra_score*100:.2f}% | fa: {fa_score*100:.2f}% | ta: {ta_score*100:.2f}% | mia: {mia_score:.44f}")
 
+        self._run_final_router_diagnostics(phase="LEARN")
+
         peak_memory_gb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 3) if torch.cuda.is_available() else 0.0
         wandb.log({
             "total_train_time_sec": total_train_time,
@@ -607,15 +674,18 @@ class Module(Gradient_Ascent):
             if early_stop:
                 break
 
+        print(f"[*] Unlearning finished. Total Steps: {total_unlearn_steps} | Total Time: {total_unlearn_time:.2f}s")
+
+        self._run_final_router_diagnostics(phase="UNLEARN")
+
         peak_memory_gb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 3) if torch.cuda.is_available() else 0.0
-        
+
         wandb.log({
             "total_unlearn_time_sec": total_unlearn_time,
-            "total_unlearn_steps": total_unlearn_steps,  
+            "total_unlearn_steps": total_unlearn_steps,
             "peak_memory_gb": peak_memory_gb
         })
-        
-        print(f"[*] Unlearning finished. Total Steps: {total_unlearn_steps} | Total Time: {total_unlearn_time:.2f}s")
+
         torch.save(self.model.state_dict(), f"{ckpt_path}.pt")
 
         return total_unlearn_time

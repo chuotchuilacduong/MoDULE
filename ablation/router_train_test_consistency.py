@@ -11,12 +11,15 @@ training -- i.e. the routing rule doesn't generalize to held-out data for
 that domain.
 """
 import argparse
+import sys
 from pathlib import Path
 
 import torch
 import yaml
 
 from torch.utils.data import DataLoader, random_split, Subset
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dataset.pytorch_dataset.pacs import PACSDataset
 from dataset.transform.test_transform import get_test_transform
