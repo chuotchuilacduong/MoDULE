@@ -1,0 +1,47 @@
+name: pacs_module_example
+output_root: runs
+
+learn:
+  seed: 42
+  dataset: pacs
+  data_dir: ./data/PACS
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 0.5
+  lambda_div: 0.5
+  ema_alpha: 0.9
+  wandb_mode: disabled
+
+unlearn:
+  unlearn_algo: module
+  epochs: 20
+  batch_size: 128
+  lr: 0.0001
+  weight_decay: 0.0
+  fa_threshold: 0.1
+  k_u: 2
+  selection_option: diff
+  update_scope: selected_experts_and_head
+  alpha: 1.0
+  beta: 1.0
+  gamma: 1.0
+  eta: 1.0
+  wandb_mode: disabled
+
+# Cartesian grid. Remove this block for one learning-to-unlearning run.
+sweep:
+  parameters:
+    unlearn.k_u: [1, 2, 4]
+    unlearn.selection_option: [diff, ratio, gradient, random]

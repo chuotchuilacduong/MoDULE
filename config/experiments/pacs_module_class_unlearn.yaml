@@ -1,0 +1,47 @@
+name: unlearn_class_selection_compare
+output_root: runs
+
+learn:
+  seed: 42
+  dataset: pacs
+  data_dir: ./dataset/data_folder/pacs
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 1.0
+  lambda_div: 2.0
+  ema_alpha: 0.9
+  wandb_mode: disabled
+
+unlearn:
+  unlearn_algo: module
+  unlearn_setting: class
+  forget_classes: [0]
+  epochs: 20
+  batch_size: 128
+  lr: 0.0001
+  weight_decay: 0.0
+  fa_threshold: 0.1
+  k_u: 2
+  selection_option: diff
+  update_scope: selected_experts_and_head
+  alpha: 1.0
+  beta: 1.0
+  gamma: 1.0
+  eta: 1.0
+  wandb_mode: disabled
+
+sweep:
+  parameters:
+    unlearn.selection_option: [diff, ratio, gradient, random]
