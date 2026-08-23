@@ -47,15 +47,12 @@ def get_clean_transform():
 
 def get_stress_transform():
     return transforms.Compose([
-        transforms.RandomRotation(45),
-        transforms.RandomAffine(0, translate=(0.2, 0.2), shear=20, scale=(0.6, 1.4)),
-        transforms.ColorJitter(brightness=0.6, contrast=0.6, saturation=0.6, hue=0.3),
-        transforms.RandomPerspective(distortion_scale=0.5, p=0.5),
-        transforms.RandomGrayscale(p=0.2),
-        transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 3.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        transforms.RandomAffine(0, translate=(0.05, 0.05), shear=10, scale=(0.85, 1.15)),
+        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3),
         transforms.ToTensor(),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        transforms.RandomErasing(p=0.5, scale=(0.02, 0.2)),
     ])
 
 

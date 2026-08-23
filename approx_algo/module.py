@@ -113,6 +113,8 @@ class Module(Gradient_Ascent):
             return
 
         for split_name, loader in [("TRAIN", self.train_loader), ("TEST", self.test_loader)]:
+            if loader is None:
+                continue
             split_label = f"{phase}_{split_name}"
             print(f"\n[*] Running full router diagnostics on {split_label} split...")
             diag = extract_router_diagnostics(

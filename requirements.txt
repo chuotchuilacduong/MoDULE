@@ -1,7 +1,7 @@
 # Python version: 3.12.4
---extra-index-url https://download.pytorch.org/whl/cu124
-torch==2.6.0+cu124
-torchvision==0.21.0+cu124
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.7.1+cu128
+torchvision==0.22.1+cu128
 
 wandb==0.27.2
 numpy==2.4.4

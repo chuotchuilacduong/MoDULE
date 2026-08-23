@@ -115,7 +115,6 @@ def main():
     
     unlearn_algo = getattr(args, 'unlearn_algo', 'finetune').lower()
     unlearn_setting = getattr(args, 'unlearn_setting', 'random')
-    project_name = f"{unlearn_setting}_unlearn"
 
     if unlearn_algo in ['erm_ktp', 'ktp'] and unlearn_setting != 'class':
         raise ValueError(
@@ -124,9 +123,17 @@ def main():
             f"It is strictly applicable only for `unlearn_setting: 'class'`.\n"
             f"Your current config uses: '{unlearn_setting}'."
         )
-    
-    wandb.login(key="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")
-    wandb.init(project=project_name, name=f"unlearn_{unlearn_algo}_{yaml_filename}", config=yaml_config)
+
+    run_name = (
+        f"abla_{unlearn_setting}_{unlearn_algo}"
+        f"_ku{args.k_u}_{args.selection_option}_{args.update_scope}"
+        f"_a{args.alpha}_b{args.beta}_g{args.gamma}_e{args.eta}_seed{args.seed}"
+    )
+    wandb.init(
+        project="MoE",
+        name=run_name,
+        config=yaml_config,
+    )
 
     print("\n" + "="*40)
     print(f"[*] loading dataset: {args.dataset}")

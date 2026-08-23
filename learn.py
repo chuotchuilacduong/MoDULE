@@ -114,11 +114,15 @@ def main():
             f"Your current config uses: '{unlearn_setting}'."
         )
     
-    wandb.login(key="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")
+    run_name = (
+        f"baselearn_{args.dataset}_{args.model_name}"
+        f"_ne{args.num_experts}_gk{args.gate_k}_ed{args.expert_depth}_ehr{args.expert_hidden_ratio}"
+        f"_{unlearn_setting}_fr{args.forget_ratio}_seed{args.seed}"
+    )
     wandb.init(
-        project='learn',
-        name=f"base_{yaml_filename}",
-        config=yaml_config, 
+        project="MoE",
+        name=run_name,
+        config=yaml_config,
         settings=wandb.Settings(start_method='thread')
     )
 
