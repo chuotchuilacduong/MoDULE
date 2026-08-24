@@ -478,9 +478,11 @@ class Module(Gradient_Ascent):
                     match_metrics["epoch"] = epoch + 1
                     wandb.log(match_metrics)
                     print(f"  [router-match @ epoch {epoch + 1}] "
-                          f"exact={match_metrics['router_match/overall/exact_match_rate']:.4f} "
-                          f"overlap={match_metrics['router_match/overall/mean_topk_overlap']:.4f} "
+                          f"mass_exact={match_metrics['router_match/overall/mass_exact_match_rate']:.4f} "
+                          f"sel_exact={match_metrics['router_match/overall/sel_exact_match_rate']:.4f} "
+                          f"sel_tv={match_metrics['router_match/overall/sel_mean_tv']:.4f} "
                           f"(k_u={self.router_match_k_u}, "
+                          f"gate_k={match_metrics['router_match/overall/gate_k']}, "
                           f"{match_metrics['router_match/overall/num_domains']} domains)")
                 # `domain_train_test_expert_match` sets the model to eval();
                 # restore train() before the next training epoch.
