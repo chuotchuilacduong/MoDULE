@@ -4,7 +4,7 @@ output_root: runs
 learn:
   seed: 42
   dataset: pacs
-  data_dir: ./dataset/data_folder/PACS
+  data_dir: ./dataset/data_folder/pacs
   unlearn_setting: random
   forget_ratio: 0.1
   model_name: module_small_patch16_224
