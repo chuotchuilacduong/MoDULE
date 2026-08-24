@@ -26,11 +26,12 @@ from architecture.deity import DeiTArchitecture
 from architecture.resnet import ResNetArchitecture
 from architecture.module import ModuleArchitecture
 from architecture.erm_ktp_resnet import ERM_KTP_Resnet
-from architecture.asu_deity import ASUDeiTArchitecture  
+from architecture.asu_deity import ASUDeiTArchitecture
 
 from approx_algo.gradient_ascent import Gradient_Ascent
 from approx_algo.module import Module
 from approx_algo.erm_ktp import ERM_KTP
+
 
 # applies transform to subset, enforcing a base 224x224 resize to be compatible with vit/ resnet.
 class ApplyTransform(Dataset):
@@ -58,11 +59,12 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
         torch.cuda.reset_peak_memory_stats()
 
+
 # safely extracts domain labels.
 def get_domain(dataset, idx):
     if hasattr(dataset, 'domains'):
         return dataset.domains[idx]
-    
+
     data_tuple = dataset[idx]
     domain_val = data_tuple[2].item() if isinstance(data_tuple[2], torch.Tensor) else data_tuple[2]
     return int(domain_val)
@@ -72,17 +74,17 @@ def main():
     parser = argparse.ArgumentParser(description="Train a base model from yaml config.")
     parser.add_argument('--config', type=str, required=True, help="Path to the config .yaml file.")
     cmd_args = parser.parse_args()
-    
+
     with open(cmd_args.config, 'r') as f:
         yaml_config = yaml.safe_load(f)
-        
+
     args = argparse.Namespace(**yaml_config)
-    
+
     yaml_filename = os.path.splitext(os.path.basename(cmd_args.config))[0]
-    
+
     # handle for both Windows & Linux path.
     normalized_path = cmd_args.config.replace('\\', '/')
-    
+
     path_no_ext = os.path.splitext(normalized_path)[0]
 
     if 'config/' in path_no_ext:
@@ -97,8 +99,8 @@ def main():
     set_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     os.makedirs(args.output_dir, exist_ok=True)
-    
-    print("\n" + "="*40)
+
+    print("\n" + "=" * 40)
     print(f"[*] initializing learning pipeline")
     print(f"[*] config: {cmd_args.config}")
     print(f"[*] output_dir: {args.output_dir}")
@@ -113,7 +115,7 @@ def main():
             f"It is strictly applicable only for `unlearn_setting: 'class'`.\n"
             f"Your current config uses: '{unlearn_setting}'."
         )
-    
+
     run_name = (
         f"baselearn_{args.dataset}_{args.model_name}"
         f"_ne{args.num_experts}_gk{args.gate_k}_ed{args.expert_depth}_ehr{args.expert_hidden_ratio}"
@@ -158,57 +160,91 @@ def main():
             train_subset, [forget_size, train_size - forget_size], generator=generator
         )
         final_test_subset = test_subset
-        
+
     elif unlearn_setting in ['class', 'domain']:
         target_list = getattr(args, f'forget_{unlearn_setting}es', [0])
-        if not isinstance(target_list, list): 
+        if not isinstance(target_list, list):
             target_list = [target_list]
-        
+
         f_tr_idx, r_tr_idx, r_te_idx = [], [], []
-        
+
         for idx in train_subset.indices:
             val = full_dataset.labels[idx] if unlearn_setting == 'class' else get_domain(full_dataset, idx)
             (f_tr_idx if val in target_list else r_tr_idx).append(idx)
-            
+
         for idx in test_subset.indices:
             val = full_dataset.labels[idx] if unlearn_setting == 'class' else get_domain(full_dataset, idx)
-            if val not in target_list: 
+            if val not in target_list:
                 r_te_idx.append(idx)
-                
+
         forget_subset = Subset(full_dataset, f_tr_idx)
         retain_subset = Subset(full_dataset, r_tr_idx)
         final_test_subset = Subset(full_dataset, r_te_idx)
     else:
         raise ValueError("unlearn_setting must be 'random', 'class', or 'domain'")
 
-    train_loader = DataLoader(ApplyTransform(train_subset, get_train_transform()), batch_size=args.batch_size, shuffle=True, num_workers=4)
-    forget_train_loader = DataLoader(ApplyTransform(forget_subset, get_train_transform()), batch_size=args.batch_size, shuffle=True, num_workers=4)
-    retain_train_loader = DataLoader(ApplyTransform(retain_subset, get_train_transform()), batch_size=args.batch_size, shuffle=True, num_workers=4)
-    
-    forget_test_loader = DataLoader(ApplyTransform(forget_subset, get_forget_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
-    retain_test_loader = DataLoader(ApplyTransform(retain_subset, get_retain_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
-    test_loader = DataLoader(ApplyTransform(final_test_subset, get_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
-    unseen_loader = DataLoader(ApplyTransform(unseen_subset, get_unseen_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
+    train_loader = DataLoader(ApplyTransform(train_subset, get_train_transform()), batch_size=args.batch_size,
+                              shuffle=True, num_workers=4)
+    forget_train_loader = DataLoader(ApplyTransform(forget_subset, get_train_transform()), batch_size=args.batch_size,
+                                     shuffle=True, num_workers=4)
+    retain_train_loader = DataLoader(ApplyTransform(retain_subset, get_train_transform()), batch_size=args.batch_size,
+                                     shuffle=True, num_workers=4)
+
+    forget_test_loader = DataLoader(ApplyTransform(forget_subset, get_forget_test_transform()),
+                                    batch_size=args.batch_size, shuffle=False, num_workers=4)
+    retain_test_loader = DataLoader(ApplyTransform(retain_subset, get_retain_test_transform()),
+                                    batch_size=args.batch_size, shuffle=False, num_workers=4)
+    test_loader = DataLoader(ApplyTransform(final_test_subset, get_test_transform()), batch_size=args.batch_size,
+                             shuffle=False, num_workers=4)
+    unseen_loader = DataLoader(ApplyTransform(unseen_subset, get_unseen_transform()), batch_size=args.batch_size,
+                               shuffle=False, num_workers=4)
+
+    # per-domain eval loaders for router train/test consistency check.
+    # both sides use TEST transforms so training augmentation + router noise_std
+    # don't contaminate what is meant to be a same-input-distribution comparison.
+    # keyed by numeric domain id; only populated for domain-labeled datasets.
+    per_domain_train_loaders_eval, per_domain_test_loaders = {}, {}
+    if hasattr(full_dataset, 'domains'):
+        all_domains = sorted(set(full_dataset.domains))
+        for d in all_domains:
+            tr_idx = [i for i in train_subset.indices if full_dataset.domains[i] == d]
+            te_idx = [i for i in test_subset.indices if full_dataset.domains[i] == d]
+            if not tr_idx or not te_idx:
+                # skip domains that are absent from either side of the split
+                continue
+            per_domain_train_loaders_eval[d] = DataLoader(
+                ApplyTransform(Subset(full_dataset, tr_idx), get_test_transform()),
+                batch_size=args.batch_size, shuffle=False, num_workers=4,
+            )
+            per_domain_test_loaders[d] = DataLoader(
+                ApplyTransform(Subset(full_dataset, te_idx), get_test_transform()),
+                batch_size=args.batch_size, shuffle=False, num_workers=4,
+            )
+        print(f"[*] router train/test consistency: will monitor {len(per_domain_train_loaders_eval)} domain(s) "
+              f"({[d for d in per_domain_train_loaders_eval]})")
 
     if 'erm_ktp_resnet' in args.model_name:
         backbone_name = args.model_name.replace('erm_ktp_', '')
         model = ERM_KTP_Resnet(
-            model_name=backbone_name, 
-            num_classes=num_classes, 
+            model_name=backbone_name,
+            num_classes=num_classes,
             pretrained=args.pretrained,
             alpha_ratio=getattr(args, 'alpha_ratio', 0.1),
             device=device
         )
     elif 'asu_deit' in args.model_name:
-        model = ASUDeiTArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=args.pretrained, device=device)
+        model = ASUDeiTArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=args.pretrained,
+                                    device=device)
     elif 'resnet' in args.model_name:
-        model = ResNetArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=args.pretrained, device=device)
+        model = ResNetArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=args.pretrained,
+                                   device=device)
     elif 'deit' in args.model_name:
-        model = DeiTArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=args.pretrained, device=device)
+        model = DeiTArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=args.pretrained,
+                                 device=device)
     elif 'module' in args.model_name:
         model = ModuleArchitecture(
-            model_name=args.model_name, 
-            num_classes=num_classes, 
+            model_name=args.model_name,
+            num_classes=num_classes,
             pretrained=args.pretrained,
             moe_layers=getattr(args, 'moe_layers', None),
             num_experts=args.num_experts,
@@ -258,6 +294,10 @@ def main():
             domain_mass_log_every=getattr(args, 'domain_mass_log_every', 10),
             dead_expert_threshold=getattr(args, 'dead_expert_threshold', 0.01),
             run_eq7_diagnostics=getattr(args, 'run_eq7_diagnostics', False),
+            per_domain_train_loaders_eval=per_domain_train_loaders_eval,
+            per_domain_test_loaders=per_domain_test_loaders,
+            router_match_log_every=getattr(args, 'router_match_log_every', 1),
+            router_match_k_u=getattr(args, 'router_match_k_u', 1),
         )
         ema_alpha = getattr(args, 'ema_alpha', 0.9)
         algo_wrapper.learn(ckpt_path=ckpt_prefix, ema_alpha=ema_alpha)
@@ -278,6 +318,7 @@ def main():
         algo_wrapper.learn(ckpt_path=ckpt_prefix)
 
     wandb.finish()
+
 
 if __name__ == "__main__":
     main()

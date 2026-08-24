@@ -22,6 +22,13 @@ learn:
   lambda_balance: 0.5
   lambda_div: 0.5
   ema_alpha: 0.9
+  # router train/test consistency check (metric/router_traintest_match.py):
+  # every N epochs, log the % of (domain, MoE-layer) pairs whose top-k_u
+  # expert set matches between train images and held-out test images of the
+  # same domain. Set router_match_log_every to a larger number on datasets
+  # where the extra eval pass becomes expensive.
+  router_match_log_every: 1
+  router_match_k_u: 1
   wandb_mode: disabled
 
 unlearn:
