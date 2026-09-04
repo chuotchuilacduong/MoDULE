@@ -1,4 +1,5 @@
 import os
+import math
 import time
 import copy
 import torch
@@ -57,6 +58,18 @@ class Module(Gradient_Ascent):
             per_domain_test_loaders=None,
             router_match_log_every=1,
             router_match_k_u=1,
+            # learn()-phase stability. defaults are off so existing runs keep
+            # their exact behaviour; learn.py/retrain_baseline.py opt in via yaml.
+            grad_clip_norm=None,
+            lr_schedule=None,
+            warmup_epochs=1,
+            # micro-batches accumulated per optimizer step. 1 = original behaviour.
+            # batch_size x grad_accum_steps is the effective batch, so a large-M model
+            # can keep the same effective batch on a smaller activation footprint.
+            grad_accum_steps=1,
+            # experts active per input during the unlearning forward pass. None
+            # keeps active-k tied to k_u (the original behaviour).
+            unlearn_active_k=None,
     ):
         super().__init__(
             model=model,
@@ -102,6 +115,11 @@ class Module(Gradient_Ascent):
         self.per_domain_test_loaders = per_domain_test_loaders or {}
         self.router_match_log_every = router_match_log_every
         self.router_match_k_u = router_match_k_u
+        self.grad_clip_norm = grad_clip_norm
+        self.lr_schedule = lr_schedule
+        self.warmup_epochs = warmup_epochs
+        self.grad_accum_steps = max(int(grad_accum_steps), 1)
+        self.unlearn_active_k = unlearn_active_k
 
         # full router diagnostics (entropy, dead experts, per-domain mass, per-expert
         # specialization) need a (image, label, domain) dataloader and class names --
@@ -346,6 +364,27 @@ class Module(Gradient_Ascent):
 
         num_domains = len(self.domain_names) if self.domain_names else 0
 
+        # cosine decay with linear warmup, stepped per batch. paired with the
+        # gradient clipping below: a constant LR for the whole run is what let
+        # the base model diverge late in training.
+        scheduler = None
+        if self.lr_schedule == "cosine":
+            # count OPTIMIZER steps, not micro-batches, so the schedule is identical
+            # whether or not gradient accumulation is in use.
+            steps_per_epoch = max(math.ceil(len(self.train_loader) / self.grad_accum_steps), 1)
+            total_steps = steps_per_epoch * self.num_epoch
+            warmup_steps = min(steps_per_epoch * self.warmup_epochs, max(total_steps - 1, 0))
+
+            def lr_lambda(step):
+                if warmup_steps > 0 and step < warmup_steps:
+                    return (step + 1) / warmup_steps
+                progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
+                return 0.5 * (1.0 + math.cos(math.pi * min(progress, 1.0)))
+
+            scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
+            print(f"[*] lr schedule: cosine over {total_steps} steps "
+                  f"({self.warmup_epochs} warmup epoch(s)) | grad clip: {self.grad_clip_norm}")
+
         for epoch in range(self.num_epoch):
             self.model.train()
             epoch_start_time = time.time()
@@ -360,12 +399,16 @@ class Module(Gradient_Ascent):
             )
             domain_mass_sum, domain_tok_count = {}, {}
 
-            for batch in self.train_loader:
+            for micro_step, batch in enumerate(self.train_loader):
                 images = batch[0].to(self.device)
                 labels = batch[1].to(self.device)
                 domains = batch[2].to(self.device).long() if (do_domain_log and len(batch) > 2) else None
 
-                self.optimizer.zero_grad()
+                # gradient accumulation: zero only at the start of an accumulation
+                # window, step only at its end. with grad_accum_steps == 1 this is
+                # exactly the original per-batch behaviour.
+                if micro_step % self.grad_accum_steps == 0:
+                    self.optimizer.zero_grad()
                 logits, _ = self.model.forward_with_grad(images)
 
                 all_pi, all_h, moe_names = [], [], []
@@ -402,8 +445,23 @@ class Module(Gradient_Ascent):
                 t_loss = ce_loss + (self.lambda_sparse * sp_loss) + (self.lambda_balance * bal_loss) + (
                             self.lambda_div * div_loss)
 
-                t_loss.backward()
-                self.optimizer.step()
+                # scale so the accumulated gradient equals the mean over the full
+                # effective batch, not its sum. exact for this model (LayerNorm
+                # only, no BatchNorm), so micro-batch x accum == one large batch.
+                (t_loss / self.grad_accum_steps).backward()
+
+                is_last_micro = (micro_step % self.grad_accum_steps == self.grad_accum_steps - 1) or \
+                                (micro_step == len(self.train_loader) - 1)
+                if is_last_micro:
+                    # constant-LR AdamW on a pretrained backbone blew this run up at
+                    # epoch ~57 of the M=12/k=4 base model (train CE 0.056 -> 1.81,
+                    # never recovered). clip before stepping so a single bad batch
+                    # cannot destroy a converged model.
+                    if self.grad_clip_norm:
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+                    self.optimizer.step()
+                    if scheduler is not None:
+                        scheduler.step()
 
                 running_total += t_loss.item()
                 running_ce += ce_loss.item()
@@ -411,7 +469,10 @@ class Module(Gradient_Ascent):
                 running_bal += bal_loss.item()
                 running_div += div_loss.item()
 
-                total_train_steps += 1
+                # count optimizer steps so step totals stay comparable across runs
+                # with different grad_accum_steps.
+                if is_last_micro:
+                    total_train_steps += 1
 
             epoch_train_time = time.time() - epoch_start_time
             total_train_time += epoch_train_time
@@ -501,7 +562,7 @@ class Module(Gradient_Ascent):
         print(f"[*] Training finished. Total Steps: {total_train_steps} | Running final evaluation...")
         fa_score, ra_score, ta_score, mia_score = self.evaluate()
         print(
-            f"[Final Metrics] ra: {ra_score * 100:.2f}% | fa: {fa_score * 100:.2f}% | ta: {ta_score * 100:.2f}% | mia: {mia_score:.44f}")
+            f"[Final Metrics] ra: {ra_score * 100:.2f}% | fa: {fa_score * 100:.2f}% | ta: {ta_score * 100:.2f}% | mia: {mia_score:.4f}")
 
         self._run_final_router_diagnostics(phase="LEARN")
 
@@ -627,6 +688,7 @@ class Module(Gradient_Ascent):
 
                 selected_experts_per_layer.append(selected_experts)
                 m.allowed_experts = selected_experts
+                m.unlearn_active_k = self.unlearn_active_k
 
             # apply update scope.
             self._apply_update_scope(selected_experts_per_layer, moe_layers)
@@ -641,7 +703,8 @@ class Module(Gradient_Ascent):
             total_params = sum(p.numel() for p in self.model.parameters())
             trainable_params_count = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
             print(
-                f"[*] Update Scope: {self.update_scope} | Trainable Params: {trainable_params_count:,} / {total_params:,} ({(trainable_params_count / total_params) * 100:.2f}%)")
+                f"[*] Update Scope: {self.update_scope} | Trainable Params: {trainable_params_count:,} / {total_params:,} ({(trainable_params_count / total_params) * 100:.2f}%)"
+                f" | unlearn_active_k: {self.unlearn_active_k if self.unlearn_active_k is not None else f'{self.k_u} (=k_u)'}")
 
             # filter retain set.
             epoch_retain_loader = self._create_filtered_retain_loader(self.retain_loader, selected_experts_per_layer,
@@ -728,6 +791,39 @@ class Module(Gradient_Ascent):
                 "mia": mia_score,
                 "unlearn_steps_accum": total_unlearn_steps
             })
+
+            # per-epoch router train/test consistency, same check learn() runs:
+            # does each domain still route to the same top-k_u expert set on
+            # held-out test images as on train images? during unlearning this
+            # also shows whether the forget target's routing drifts while the
+            # retained domains hold their assignment.
+            if (
+                    self.per_domain_train_loaders_eval
+                    and self.per_domain_test_loaders
+                    and (epoch + 1) % self.router_match_log_every == 0
+            ):
+                from metric.router_traintest_match import domain_train_test_expert_match
+                match_metrics = domain_train_test_expert_match(
+                    self.model,
+                    self.per_domain_train_loaders_eval,
+                    self.per_domain_test_loaders,
+                    self.device,
+                    k_u=self.router_match_k_u,
+                    domain_names=self.domain_names,
+                )
+                if match_metrics:
+                    match_metrics["epoch"] = epoch + 1
+                    wandb.log(match_metrics)
+                    print(f"  [router-match @ epoch {epoch + 1}] "
+                          f"mass_exact={match_metrics['router_match/overall/mass_exact_match_rate']:.4f} "
+                          f"sel_exact={match_metrics['router_match/overall/sel_exact_match_rate']:.4f} "
+                          f"sel_tv={match_metrics['router_match/overall/sel_mean_tv']:.4f} "
+                          f"(k_u={self.router_match_k_u}, "
+                          f"gate_k={match_metrics['router_match/overall/gate_k']}, "
+                          f"{match_metrics['router_match/overall/num_domains']} domains)")
+                # `domain_train_test_expert_match` sets the model to eval();
+                # restore train() before the next unlearning epoch.
+                self.model.train()
 
             torch.save(self.model.state_dict(), f"{ckpt_path}.pt")
 

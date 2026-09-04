@@ -298,6 +298,10 @@ def main():
             per_domain_test_loaders=per_domain_test_loaders,
             router_match_log_every=getattr(args, 'router_match_log_every', 1),
             router_match_k_u=getattr(args, 'router_match_k_u', 1),
+            grad_accum_steps=getattr(args, 'grad_accum_steps', 1),
+            grad_clip_norm=getattr(args, 'grad_clip_norm', None),
+            lr_schedule=getattr(args, 'lr_schedule', None),
+            warmup_epochs=getattr(args, 'warmup_epochs', 1),
         )
         ema_alpha = getattr(args, 'ema_alpha', 0.9)
         algo_wrapper.learn(ckpt_path=ckpt_prefix, ema_alpha=ema_alpha)

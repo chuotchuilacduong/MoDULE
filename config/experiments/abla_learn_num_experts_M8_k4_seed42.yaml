@@ -1,0 +1,37 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+pretrained: true
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 4
+expert_depth: 2
+expert_hidden_ratio: 2
+
+# split construction: learn.py needs these to build the forget/retain split.
+# matches the repo's canonical num-experts sweep (pacs_module_num_experts_sweep.yaml).
+unlearn_setting: random
+forget_ratio: 0.1
+
+epochs: 100
+batch_size: 128
+lr: 0.0005
+weight_decay: 0.05
+lambda_sparse: 0.1
+lambda_balance: 0.25
+lambda_div: 0.1
+ema_alpha: 0.9
+
+# stability only, not tuning: the previous M=12/k=4 100-epoch run under a constant
+# LR with no clipping diverged at epoch ~57 (train CE 0.056 -> 1.81), ending at
+# TA 80.68% vs 91.99% at its pre-divergence best. see pacs_module_base_M12_k4.yaml.
+grad_clip_norm: 1.0
+lr_schedule: cosine
+warmup_epochs: 2
+
+output_dir: runs/_base_models/abla_num_experts_M8_k4_seed42/checkpoints
+
+experiment: abla_learn_num_experts
+M: 8
+k: 4

@@ -42,7 +42,13 @@ class DeepMoELayer(nn.Module):
         self.last_pi = None
         self.last_h = None
         
-        self.allowed_experts = None 
+        self.allowed_experts = None
+
+        # number of experts combined per token during unlearning. None keeps the
+        # original behaviour (every allowed expert is active, so active-k is tied
+        # to k_u); an int routes through only the top-k of the allowed set,
+        # decoupling "active per input" from "eligible to update".
+        self.unlearn_active_k = None
 
     def forward(self, x):
         B, S, D = x.shape
@@ -64,8 +70,12 @@ class DeepMoELayer(nn.Module):
             mask[:, self.allowed_experts] = False
             routing_logits = routing_logits.masked_fill(mask, float('-inf'))
             
-            # if unlearn mode then routing through all selected expert.
-            active_k = len(self.allowed_experts)
+            # if unlearn mode then routing through all selected experts, unless
+            # unlearn_active_k narrows it to the top-k of the allowed set.
+            if self.unlearn_active_k is None:
+                active_k = len(self.allowed_experts)
+            else:
+                active_k = min(self.unlearn_active_k, len(self.allowed_experts))
         else:
             # else, select top k experts with highest logit.
             active_k = self.gate_k

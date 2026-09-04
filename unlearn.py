@@ -166,6 +166,10 @@ def main():
         full_dataset, [train_size, test_size, unseen_size], generator=generator
     )
 
+    # the class/domain branches below replace test_subset with a retain-only view,
+    # so keep the unfiltered test indices for the router train/test consistency
+    # check -- it has to cover the forget target too, not just the retained side.
+    full_test_indices = list(test_subset.indices)
 
     print(f"[*] unlearning setting: {unlearn_setting}")
     if unlearn_setting == 'random':
@@ -267,6 +271,30 @@ def main():
     if len(mia_unseen_subset) < 100:
         print(f"[!] warning: mia non-member pool is small ({len(mia_unseen_subset)}); the mia score will be noisy")
 
+    # per-domain eval loaders for the router train/test consistency check.
+    # both sides use TEST transforms so training augmentation + router noise_std
+    # don't contaminate what is meant to be a same-input-distribution comparison.
+    # built from the unfiltered test split so the forgotten class/domain is
+    # monitored alongside the retained ones.
+    per_domain_train_loaders_eval, per_domain_test_loaders = {}, {}
+    if hasattr(full_dataset, 'domains'):
+        all_domains = sorted(set(full_dataset.domains))
+        for d in all_domains:
+            tr_idx = [i for i in train_subset.indices if full_dataset.domains[i] == d]
+            te_idx = [i for i in full_test_indices if full_dataset.domains[i] == d]
+            if not tr_idx or not te_idx:
+                # skip domains that are absent from either side of the split
+                continue
+            per_domain_train_loaders_eval[d] = DataLoader(
+                ApplyTransform(Subset(full_dataset, tr_idx), get_test_transform()),
+                batch_size=args.batch_size, shuffle=False, num_workers=4,
+            )
+            per_domain_test_loaders[d] = DataLoader(
+                ApplyTransform(Subset(full_dataset, te_idx), get_test_transform()),
+                batch_size=args.batch_size, shuffle=False, num_workers=4,
+            )
+        print(f"[*] router train/test consistency: will monitor {len(per_domain_train_loaders_eval)} domain(s) "
+              f"({[d for d in per_domain_train_loaders_eval]})")
 
     print("\n" + "="*40)
     print(f"[*] loading model: {args.model_name}")
@@ -381,6 +409,14 @@ def main():
             class_names=getattr(full_dataset, 'class_names', None),
             dead_expert_threshold=getattr(args, 'dead_expert_threshold', 0.01),
             run_eq7_diagnostics=getattr(args, 'run_eq7_diagnostics', False),
+            per_domain_train_loaders_eval=per_domain_train_loaders_eval,
+            per_domain_test_loaders=per_domain_test_loaders,
+            unlearn_active_k=getattr(args, 'unlearn_active_k', None),
+            router_match_log_every=getattr(args, 'router_match_log_every', 1),
+            # fixed default (same as learn.py) rather than following the run's k_u:
+            # the ablation sweeps k_u, and a top-k_u overlap measured at a different
+            # k_u per run would not be comparable across rows. override in yaml.
+            router_match_k_u=getattr(args, 'router_match_k_u', 1),
         )
     elif unlearn_algo == 'finetune':
         algo_wrapper = Finetune(**algo_kwargs)

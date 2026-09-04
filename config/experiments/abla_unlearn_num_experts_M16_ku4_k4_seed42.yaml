@@ -1,0 +1,44 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+moe_layers: FFFFFFFFFFSS
+num_experts: 16
+gate_k: 4
+expert_depth: 2
+expert_hidden_ratio: 2
+
+unlearn_algo: module
+# repo's canonical scenario for this ablation, inherited from the learn block of
+# config/experiments/pacs_module_num_experts_sweep.yaml: random forget, 10% of train.
+unlearn_setting: random
+forget_ratio: 0.1
+epochs: 20
+batch_size: 128
+lr: 0.0001
+weight_decay: 0.0
+# no stopping: FA can never reach -1.0, so all 20 epochs always run.
+fa_threshold: -1.0
+k_u: 4
+selection_option: diff
+update_scope: selected_experts_and_head
+alpha: 1.0
+beta: 0.25
+gamma: 0.25
+eta: 0.25
+lambda_sparse: 0.1
+lambda_balance: 0.25
+lambda_div: 0.1
+# required for the Routing Overlap (RFO) column
+run_eq7_diagnostics: true
+
+pretrained_model_path: runs/_base_models/abla_num_experts_M16_k4_seed42/checkpoints/abla_learn_num_experts_M16_k4_seed42.pt
+output_dir: runs/abla_num_experts/abla_unlearn_num_experts_M16_ku4_k4_seed42/checkpoints
+study_name: abla_unlearn_num_experts_M16_ku4_k4_seed42
+
+experiment: abla_unlearn_num_experts
+M: 16
+learn_k: 4
+ku: 4
+unlearn_epochs: 20
+checkpoint: runs/_base_models/abla_num_experts_M16_k4_seed42/checkpoints/abla_learn_num_experts_M16_k4_seed42.pt
