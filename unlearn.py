@@ -124,11 +124,15 @@ def main():
             f"Your current config uses: '{unlearn_setting}'."
         )
 
-    run_name = (
-        f"abla_{unlearn_setting}_{unlearn_algo}"
-        f"_ku{args.k_u}_{args.selection_option}_{args.update_scope}"
-        f"_a{args.alpha}_b{args.beta}_g{args.gamma}_e{args.eta}_seed{args.seed}"
-    )
+    study_name = getattr(args, 'study_name', None)
+    if study_name:
+        run_name = study_name
+    else:
+        run_name = (
+            f"abla_{unlearn_setting}_{unlearn_algo}"
+            f"_ku{args.k_u}_{args.selection_option}_{args.update_scope}"
+            f"_a{args.alpha}_b{args.beta}_g{args.gamma}_e{args.eta}_seed{args.seed}"
+        )
     wandb.init(
         project="MoE",
         name=run_name,
@@ -162,6 +166,7 @@ def main():
         full_dataset, [train_size, test_size, unseen_size], generator=generator
     )
 
+
     print(f"[*] unlearning setting: {unlearn_setting}")
     if unlearn_setting == 'random':
         forget_ratio = getattr(args, 'forget_ratio', 0.1)
@@ -169,6 +174,9 @@ def main():
         forget_subset, retain_subset = random_split(
             train_subset, [forget_size, train_size - forget_size], generator=generator
         )
+        # forget set is a uniform sample of train, so every held-out split already
+        # matches it in class/domain composition.
+        mia_unseen_indices = list(unseen_subset.indices) + list(test_subset.indices)
         print(f"[*] split sizes -> retain: {len(retain_subset)} | forget: {len(forget_subset)} | test: {len(test_subset)} | unseen: {len(unseen_subset)}")
 
     elif unlearn_setting == 'class':
@@ -178,6 +186,11 @@ def main():
             
         print(f"[*] target classes to unlearn: {forget_classes}")
         forget_train_indices, retain_train_indices, retain_test_indices = [], [], []
+        # non-member side of the MIA: held-out samples of the *forget* classes only.
+        # the full unseen split covers every class, and logit/loss statistics are
+        # strongly class-dependent, so an unmatched pool lets the attack separate
+        # the sets on class identity rather than on membership.
+        mia_unseen_indices = []
 
         for idx in train_subset.indices:
             label = full_dataset.labels[idx]
@@ -185,12 +198,18 @@ def main():
                 forget_train_indices.append(idx)
             else:
                 retain_train_indices.append(idx)
-                
+
         for idx in test_subset.indices:
             label = full_dataset.labels[idx]
             if label not in forget_classes:
                 retain_test_indices.append(idx)
-                
+            else:
+                mia_unseen_indices.append(idx)
+
+        for idx in unseen_subset.indices:
+            if full_dataset.labels[idx] in forget_classes:
+                mia_unseen_indices.append(idx)
+
         forget_subset = Subset(full_dataset, forget_train_indices)
         retain_subset = Subset(full_dataset, retain_train_indices)
         test_subset = Subset(full_dataset, retain_test_indices) 
@@ -203,6 +222,9 @@ def main():
             
         print(f"[*] target domains to unlearn: {forget_domains}")
         forget_train_indices, retain_train_indices, retain_test_indices = [], [], []
+        # non-member side of the MIA, restricted to the forget domains (see the
+        # class branch above for why the pool has to be matched).
+        mia_unseen_indices = []
 
         for idx in train_subset.indices:
             domain = get_domain(full_dataset, idx)
@@ -210,12 +232,18 @@ def main():
                 forget_train_indices.append(idx)
             else:
                 retain_train_indices.append(idx)
-                
+
         for idx in test_subset.indices:
             domain = get_domain(full_dataset, idx)
             if domain not in forget_domains:
                 retain_test_indices.append(idx)
-                
+            else:
+                mia_unseen_indices.append(idx)
+
+        for idx in unseen_subset.indices:
+            if get_domain(full_dataset, idx) in forget_domains:
+                mia_unseen_indices.append(idx)
+
         forget_subset = Subset(full_dataset, forget_train_indices)
         retain_subset = Subset(full_dataset, retain_train_indices)
         test_subset = Subset(full_dataset, retain_test_indices) 
@@ -230,6 +258,15 @@ def main():
     retain_test_loader = DataLoader(ApplyTransform(retain_subset, get_retain_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
     test_loader = DataLoader(ApplyTransform(test_subset, get_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
     unseen_loader = DataLoader(ApplyTransform(unseen_subset, get_unseen_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
+
+    # MIA non-member pool: same deterministic transform as forget_test_loader, so
+    # the attack cannot separate members from non-members on augmentation alone.
+    mia_unseen_subset = Subset(full_dataset, mia_unseen_indices)
+    mia_unseen_loader = DataLoader(ApplyTransform(mia_unseen_subset, get_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
+    print(f"[*] mia non-member pool: {len(mia_unseen_subset)} (matched to forget set, deterministic transform)")
+    if len(mia_unseen_subset) < 100:
+        print(f"[!] warning: mia non-member pool is small ({len(mia_unseen_subset)}); the mia score will be noisy")
+
 
     print("\n" + "="*40)
     print(f"[*] loading model: {args.model_name}")
@@ -349,6 +386,8 @@ def main():
         algo_wrapper = Finetune(**algo_kwargs)
     else:
         raise ValueError(f"Unsupported algorithm: {unlearn_algo}")
+
+    algo_wrapper.set_mia_unseen_loader(mia_unseen_loader)
 
     ckpt_prefix = os.path.join(args.output_dir, f"unlearned_{unlearn_algo}_{yaml_filename}")
     fa_threshold = getattr(args, 'fa_threshold', 0.8)

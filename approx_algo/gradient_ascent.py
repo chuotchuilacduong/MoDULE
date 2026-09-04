@@ -40,7 +40,24 @@ class Gradient_Ascent:
 
         self.num_epoch = num_epoch
         self.device = device
-        
+
+        # non-member pool for the MIA metric. defaults to unseen_loader, but that
+        # loader is augmented and (in class/domain settings) covers every class, so
+        # entry points should override it via set_mia_unseen_loader().
+        self.mia_unseen_loader = unseen_loader
+
+    def set_mia_unseen_loader(self, loader):
+        """
+        held-out samples used as the non-member side of the MIA.
+
+        must be matched to the forget set in class/domain composition and use the
+        same deterministic transform, otherwise the attack separates the two sets
+        on preprocessing or class identity instead of on membership. kept separate
+        from `unseen_loader`, which some algorithms (e.g. SG_Unlearning) consume
+        as augmented training data.
+        """
+        self.mia_unseen_loader = loader
+
     def learn(self, ckpt_path):
         self.model.train()
         
@@ -141,5 +158,6 @@ class Gradient_Ascent:
         fa_score = forget_acc(self.model, self.forget_test_loader, self.device)
         ra_score = retain_acc(self.model, self.retain_test_loader, self.device)
         ta_score = test_acc(self.model, self.test_loader, self.device)
-        mia_score = mia(self.model, self.unseen_loader, self.forget_test_loader, self.device)
+        # members = the forget set, non-members = held-out samples matched to it
+        mia_score = mia(self.model, self.forget_test_loader, self.mia_unseen_loader, self.device)
         return fa_score, ra_score, ta_score, mia_score
