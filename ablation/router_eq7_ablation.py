@@ -23,6 +23,20 @@ from architecture.module import ModuleArchitecture
 from metric.router_metrics import mass_and_entropy, forced_routing_accuracy, expert_hit_rate
 
 
+def _wandb_settings():
+    """Build wandb Settings that work across wandb versions.
+
+    Older wandb accepted Settings(start_method='thread'); newer releases removed
+    the field and their pydantic-validated Settings rejects it outright
+    ("Extra inputs are not permitted"). Their default already runs the client in
+    a thread, so falling back to None is equivalent.
+    """
+    try:
+        return wandb.Settings(start_method='thread')
+    except Exception:
+        return None
+
+
 class ApplyTransform(torch.utils.data.Dataset):
     def __init__(self, subset, transform=None):
         self.subset = subset
@@ -255,7 +269,7 @@ def main():
             name=f"router_eq7ablation_{dataset}_forget-artpainting_ku{cli.k_u}_{Path(cli.checkpoint).stem}",
             tags=['router_ablation', 'eq7', dataset],
             config={**cfg, "k_u": cli.k_u, "alphas": alphas},
-            settings=wandb.Settings(start_method='thread'),
+            settings=_wandb_settings(),
         )
 
     forget_mass, retain_mass = run_phase1(

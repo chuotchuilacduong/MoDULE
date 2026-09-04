@@ -24,6 +24,20 @@ from architecture.module import ModuleArchitecture
 from architecture.erm_ktp_resnet import ERM_KTP_Resnet
 from architecture.asu_deity import ASUDeiTArchitecture 
 
+
+def _wandb_settings():
+    """Build wandb Settings that work across wandb versions.
+
+    Older wandb accepted Settings(start_method='thread'); newer releases removed
+    the field and their pydantic-validated Settings rejects it outright
+    ("Extra inputs are not permitted"). Their default already runs the client in
+    a thread, so falling back to None is equivalent.
+    """
+    try:
+        return wandb.Settings(start_method='thread')
+    except Exception:
+        return None
+
 class ApplyTransform(torch.utils.data.Dataset):
     def __init__(self, subset, transform=None):
         self.subset = subset
@@ -377,7 +391,7 @@ def main():
             name=f"router_eval_{Path(cmd_args.checkpoint).parent.parent.name}_{Path(cmd_args.checkpoint).stem}",
             tags=['router_eval', getattr(args, 'dataset', 'unknown')],
             config={**yaml_config, "checkpoint": str(cmd_args.checkpoint)},
-            settings=wandb.Settings(start_method='thread'),
+            settings=_wandb_settings(),
         )
 
     print(f"[*] Loading dataset: {args.dataset}")

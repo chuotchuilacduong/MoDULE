@@ -33,6 +33,20 @@ from approx_algo.module import Module
 from approx_algo.erm_ktp import ERM_KTP
 
 
+def _wandb_settings():
+    """Build wandb Settings that work across wandb versions.
+
+    Older wandb accepted Settings(start_method='thread'); newer releases removed
+    the field and their pydantic-validated Settings rejects it outright
+    ("Extra inputs are not permitted"). Their default already runs the client in
+    a thread, so falling back to None is equivalent.
+    """
+    try:
+        return wandb.Settings(start_method='thread')
+    except Exception:
+        return None
+
+
 # applies transform to subset, enforcing a base 224x224 resize to be compatible with vit/ resnet.
 class ApplyTransform(Dataset):
     def __init__(self, subset, transform=None):
@@ -125,7 +139,7 @@ def main():
         project="MoE",
         name=run_name,
         config=yaml_config,
-        settings=wandb.Settings(start_method='thread')
+        settings=_wandb_settings()
     )
 
     # load dataset
