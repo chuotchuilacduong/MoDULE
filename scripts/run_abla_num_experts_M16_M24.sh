@@ -26,6 +26,8 @@ cd "$REPO_ROOT"
 
 PYTHON="${PYTHON:-python}"
 export CUDA_VISIBLE_DEVICES="${GPU:-0}"
+# suggested by the CUDA OOM message itself; reduces allocator fragmentation
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 LOG_DIR="$REPO_ROOT/results/logs"
 mkdir -p "$LOG_DIR"
@@ -58,8 +60,29 @@ for M in "${MS[@]}"; do
 done
 echo "=========================================="
 
+# Wait for the GPU to drain before starting the next run. The previous process can
+# still hold its allocation for a while after python reports "finished" (wandb
+# uploads the checkpoint during teardown), which otherwise OOMs the next run even
+# on a large card.
+wait_for_gpu() {
+  local budget="${GPU_WAIT_SECS:-300}" used
+  for ((i = 0; i < budget; i += 5)); do
+    used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1)
+    [ -z "$used" ] && return 0                       # no nvidia-smi: nothing to wait on
+    if [ "$used" -lt "${GPU_FREE_MB:-2000}" ]; then
+      [ "$i" -gt 0 ] && echo "[*] GPU drained after ${i}s (${used} MiB in use)"
+      return 0
+    fi
+    [ "$i" = 0 ] && echo "[*] waiting for GPU to drain (${used} MiB still in use)..."
+    sleep 5
+  done
+  echo "[!] GPU still busy after ${budget}s ($(nvidia-smi --query-gpu=memory.used --format=csv,noheader | head -1))."
+  echo "    Another job may be sharing this GPU. Continuing anyway -- set GPU_WAIT_SECS to wait longer."
+}
+
 run_and_log() {
   local script="$1" config="$2" run_name="$3"
+  wait_for_gpu
   local log_file="$LOG_DIR/${run_name}.log"
   echo ""
   echo "[*] $(date +%T) launching: $run_name"
