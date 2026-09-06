@@ -42,8 +42,11 @@ from approx_algo.scrub import SCRUB
 from approx_algo.sg_unlearn import SG_Unlearning 
 from approx_algo.boundary_expanding import Boundary_Expanding 
 from approx_algo.erm_ktp import ERM_KTP 
-from approx_algo.asu import ASU  
-from approx_algo.salun import SalUn 
+from approx_algo.asu import ASU
+from approx_algo.salun import SalUn
+from approx_algo.seuf import SEUF
+from approx_algo.grip import GRIP
+from approx_algo.rep_select import RepSelect
 
 class ApplyTransform(Dataset):
     def __init__(self, subset, transform=None):
@@ -417,6 +420,44 @@ def main():
             # the ablation sweeps k_u, and a top-k_u overlap measured at a different
             # k_u per run would not be comparable across rows. override in yaml.
             router_match_k_u=getattr(args, 'router_match_k_u', 1),
+        )
+    elif unlearn_algo == 'seuf':
+        algo_wrapper = SEUF(
+            **algo_kwargs,
+            seuf_M=getattr(args, 'seuf_M', 1),
+            seuf_scope=getattr(args, 'seuf_scope', 'same_layer'),
+            seuf_alpha=getattr(args, 'seuf_alpha', 1.0),
+            seuf_lambda=getattr(args, 'seuf_lambda', 1.0),
+            seuf_calibration_batches=getattr(args, 'seuf_calibration_batches', None),
+            seuf_forget_loss=getattr(args, 'seuf_forget_loss', 'ga'),
+            seuf_include_router=getattr(args, 'seuf_include_router', True),
+            seuf_include_head=getattr(args, 'seuf_include_head', False),
+        )
+    elif unlearn_algo == 'grip':
+        algo_wrapper = GRIP(
+            **algo_kwargs,
+            method=getattr(args, 'grip_method', 'B'),
+            retain_weight=getattr(args, 'retain_weight', 1.0),
+            grad_clip=getattr(args, 'grad_clip', 1.0),
+            router_filter=getattr(args, 'router_filter', r"(mlp|moe)\.(gate|router)\.weight$"),
+            top_k_experts=getattr(args, 'top_k_experts', getattr(args, 'gate_k', 2)),
+            retain_cache_size=getattr(args, 'retain_cache_size', 128),
+            tokens_per_image=getattr(args, 'tokens_per_image', 1),
+            epsilon_null=getattr(args, 'epsilon_null', 1e-2),
+            epsilon_margin=getattr(args, 'epsilon_margin', 1e-2),
+            kaczmarz_max_iters=getattr(args, 'kaczmarz_max_iters', 100),
+            ptc_ridge=getattr(args, 'ptc_ridge', 1e-6),
+            ptc_acceptance_cosine=getattr(args, 'ptc_acceptance_cosine', 0.95),
+            unlock_router=getattr(args, 'unlock_router', True),
+        )
+    elif unlearn_algo == 'rep_select':
+        algo_wrapper = RepSelect(
+            **algo_kwargs,
+            lr=getattr(args, 'rep_select_lr', 0.05),
+            k_pcs=getattr(args, 'k_pcs', 512),
+            use_lora_adversary=getattr(args, 'use_lora_adversary', False),
+            lora_rank=getattr(args, 'lora_rank', 8),
+            lora_lr=getattr(args, 'lora_lr', 0.05),
         )
     elif unlearn_algo == 'finetune':
         algo_wrapper = Finetune(**algo_kwargs)

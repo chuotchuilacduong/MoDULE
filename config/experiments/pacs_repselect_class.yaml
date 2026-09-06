@@ -1,0 +1,64 @@
+name: pacs_repselect_class_baseline
+output_root: runs
+
+# ---------------------------------------------------------------------------
+# LEARN phase -- identical to config/learn/pacs_module.yaml so RepSelect is
+# compared apples-to-apples against `Module` on the same pretrained base.
+# ---------------------------------------------------------------------------
+learn:
+  seed: 42
+  dataset: pacs
+  data_dir: ./dataset/data_folder/pacs
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 0.5
+  lambda_div: 0.5
+  ema_alpha: 0.9
+  wandb_mode: disabled
+
+# ---------------------------------------------------------------------------
+# UNLEARN phase -- RepSelect (Sondej, Yang, Mahdi, arXiv:2606.17168),
+# class-forgetting setting. forget_classes: [0] matches
+# pacs_module_class_unlearn*.yaml.
+# ---------------------------------------------------------------------------
+unlearn:
+  unlearn_algo: rep_select
+  unlearn_setting: class
+  forget_classes: [0]
+
+  # unlearn.py falls back to a Module-specific run-name template (k_u/alpha/
+  # beta/gamma/eta/...) unless `study_name` is set -- RepSelect doesn't have
+  # those fields, so this is required to avoid an AttributeError before
+  # dispatch.
+  study_name: pacs_repselect_class
+  epochs: 20
+  batch_size: 128
+  fa_threshold: 0.1
+
+  # unlearn.py unconditionally builds `optim.AdamW(model.parameters(), lr=args.lr)`
+  # before dispatching to the algorithm; RepSelect doesn't use that optimizer
+  # (its update is a single cached SVD-projected weight edit), but `lr` must
+  # still be present in the config.
+  lr: 0.0001
+  weight_decay: 0.0
+
+  # ---- RepSelect-specific knobs (see approx_algo/rep_select.py) ----
+  rep_select_lr: 0.1
+  k_pcs: 256
+  use_lora_adversary: false
+  lora_rank: 8
+  lora_lr: 0.05
+
+  wandb_mode: disabled

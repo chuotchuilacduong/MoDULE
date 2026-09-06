@@ -1,0 +1,64 @@
+name: pacs_grip_class_baseline
+output_root: runs
+
+# ---------------------------------------------------------------------------
+# LEARN phase -- identical to config/learn/pacs_module.yaml so GRIP is
+# compared apples-to-apples against `Module` on the same pretrained base.
+# ---------------------------------------------------------------------------
+learn:
+  seed: 42
+  dataset: pacs
+  data_dir: ./dataset/data_folder/pacs
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 0.5
+  lambda_div: 0.5
+  ema_alpha: 0.9
+  wandb_mode: disabled
+
+# ---------------------------------------------------------------------------
+# UNLEARN phase -- GRIP (Zhu, Wei, Gu, Li, COLM 2026), class-forgetting
+# setting. forget_classes: [0] matches pacs_module_class_unlearn*.yaml.
+# ---------------------------------------------------------------------------
+unlearn:
+  unlearn_algo: grip
+  unlearn_setting: class
+  forget_classes: [0]
+
+  # unlearn.py falls back to a Module-specific run-name template (k_u/alpha/
+  # beta/gamma/eta/...) unless `study_name` is set -- GRIP doesn't have those
+  # fields, so this is required to avoid an AttributeError before dispatch.
+  study_name: pacs_grip_class
+  epochs: 20
+  batch_size: 128
+  lr: 0.0001
+  weight_decay: 0.0
+  fa_threshold: 0.1
+
+  # ---- GRIP-specific knobs (see approx_algo/grip.py) ----
+  grip_method: B
+  retain_weight: 1.0
+  grad_clip: 1.0
+  top_k_experts: 2
+  retain_cache_size: 128
+  tokens_per_image: 1
+  epsilon_null: 0.01
+  epsilon_margin: 0.01
+  kaczmarz_max_iters: 100
+  ptc_ridge: 1.0e-6
+  ptc_acceptance_cosine: 0.95
+  unlock_router: true
+
+  wandb_mode: disabled
