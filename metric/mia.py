@@ -15,6 +15,12 @@ def _per_sample_loss(model, loader, device):
     logits also encode class identity, which would let the attack separate the
     two sets on class rather than on membership.
     """
+    # some architectures (e.g. architecture/spm.py) output log-probabilities
+    # rather than raw logits -- cross_entropy applies its own log_softmax, so
+    # feeding it already-log-softmax'd values silently computes the wrong
+    # per-sample loss. nll_loss expects exactly log-probabilities as input.
+    outputs_log_probs = getattr(model, "returns_log_probs", False)
+
     losses = []
     with torch.no_grad():
         for batch in loader:
@@ -23,9 +29,11 @@ def _per_sample_loss(model, loader, device):
 
             # inference() handles eval() + no_grad() internally
             logits, _ = model.inference(images)
-            losses.append(
-                F.cross_entropy(logits, labels, reduction="none").float().cpu().numpy()
-            )
+            if outputs_log_probs:
+                per_sample = F.nll_loss(logits, labels, reduction="none")
+            else:
+                per_sample = F.cross_entropy(logits, labels, reduction="none")
+            losses.append(per_sample.float().cpu().numpy())
 
     return np.concatenate(losses, axis=0)
 

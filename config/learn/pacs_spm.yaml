@@ -1,0 +1,39 @@
+# SPM base training on PACS.
+# SPM is NOT a module_* MoE architecture, so it cannot go through
+# config/learn/run_moe_pipeline.py (that runner hard-requires
+# learn.model_name to start with "module_"). Run this directly:
+#   python learn.py --config config/learn/pacs_spm.yaml
+# then point config/experiments/pacs_spm_unlearn.yaml's
+# pretrained_model_path at the checkpoint it produces (see that file's
+# header comment for the exact expected path).
+
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+unlearn_setting: random
+forget_ratio: 0.1
+
+model_name: spm_resnet18          # spm_resnet18 | spm_resnet34 | spm_resnet50
+pretrained: true                  # ImageNet-pretrained timm backbone
+
+# SPM-specific: number of pairwise-relation experts in the MoE head, and the
+# number of embeddings cached in the support ("memory") bank.
+num_experts: 4
+support_size: 512
+
+# Dummy placeholders: learn.py's wandb run-name string unconditionally reads
+# args.num_experts/gate_k/expert_depth/expert_hidden_ratio regardless of
+# architecture (it was written for the module_* MoE family only, and never
+# grew a bypass for other architectures the way unlearn.py's `study_name`
+# does). num_experts above is real for SPM; these three are otherwise
+# unused for a non-MoE model and only need to exist so run_name formatting
+# doesn't raise an AttributeError.
+gate_k: 1
+expert_depth: 1
+expert_hidden_ratio: 1
+
+epochs: 30
+batch_size: 64
+lr: 0.001
+
+wandb_mode: disabled

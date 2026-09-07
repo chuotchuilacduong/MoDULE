@@ -1,0 +1,77 @@
+name: pacs_qmul_baseline
+output_root: runs
+
+# ---------------------------------------------------------------------------
+# LEARN phase -- identical to config/learn/pacs_module.yaml so QMUL is
+# compared apples-to-apples against `Module` / other baselines on the same
+# pretrained base.
+# ---------------------------------------------------------------------------
+learn:
+  seed: 42
+  dataset: pacs
+  data_dir: ./dataset/data_folder/pacs
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 0.5
+  lambda_div: 0.5
+  ema_alpha: 0.9
+  wandb_mode: disabled
+
+# ---------------------------------------------------------------------------
+# UNLEARN phase -- QMUL (Green-Edge-AI-Group/MU-Q-MUL, ICCV 2025) as a
+# baseline: similar-label relabeling + adaptive forget/retain gradient
+# reweighting. Unlike SCADA/POUR, not restricted to class-forgetting -- works
+# with any unlearn_setting (random/class/domain), see approx_algo/qmul.py.
+# ---------------------------------------------------------------------------
+unlearn:
+  unlearn_algo: qmul
+  epochs: 20
+  batch_size: 128
+  lr: 0.0001
+  weight_decay: 0.0
+  fa_threshold: 0.1
+
+  # unlearn.py falls back to a Module-specific run-name template (k_u/alpha/
+  # beta/gamma/eta/...) unless `study_name` is set -- QMUL doesn't have
+  # those fields, so this is required to avoid an AttributeError before
+  # dispatch.
+  study_name: pacs_qmul
+
+  # ---- QMUL-specific knobs (see approx_algo/qmul.py) ----
+  #
+  # true = relabel each forget sample with its most "confusable" wrong class
+  # under the current model (paper's actual method); false = plain uniform
+  # random relabeling (closer to SalUn without the saliency mask).
+  use_similar_labels: true
+  # Optionally layer a SalUn-style saliency mask on top (e.g. 0.5); null
+  # disables it (paper's default RL_min without the `mask` argument).
+  mask_ratio: null
+  # The per-epoch adaptive-reweighting measurement pass caps its scan of
+  # retain_loader to len(forget_loader) batches by default (retain is often
+  # much larger, e.g. ~9x at forget_ratio=0.1, and scanning it in full would
+  # cost more than the rest of the epoch). Set true to restore the original
+  # exhaustive full-scan measurement if you want the most stable estimate
+  # regardless of cost.
+  full_norm_scan: false
+
+  wandb_mode: disabled
+
+# ---------------------------------------------------------------------------
+# Sweep grid (Cartesian). Remove for a single run.
+# ---------------------------------------------------------------------------
+sweep:
+  parameters:
+    unlearn.use_similar_labels: [true, false]
+    unlearn.mask_ratio: [null, 0.5]

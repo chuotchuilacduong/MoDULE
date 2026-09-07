@@ -1,0 +1,33 @@
+# SPM baseline -- domain unlearning on PACS (flat config; see
+# pacs_spm_unlearn.yaml's header comment for why SPM can't use the nested
+# learn:/unlearn: pipeline). Run after training the base checkpoint with
+# config/learn/pacs_spm.yaml:
+#   python unlearn.py --config config/experiments/pacs_spm_unlearn_domain.yaml
+#
+# forget_domains: [3] = the 4th PACS domain in sorted order (sketch),
+# matching pacs_module_domain_unlearn_sketch.yaml's convention. SPM itself
+# doesn't care how forget/retain were split -- "unlearning" is just rebuilding
+# the support bank from retain_loader (see approx_algo/spm_unlearn.py).
+
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+
+model_name: spm_resnet18
+pretrained_model_path: checkpoint/config/learn/pacs_spm/pacs_spm.pt
+num_experts: 4                    # must match config/learn/pacs_spm.yaml (SPM head shape)
+
+unlearn_setting: domain
+forget_domains: [3]
+
+unlearn_algo: spm
+support_size: 512
+
+study_name: pacs_spm_domain3
+
+epochs: 1
+batch_size: 64
+lr: 0.001
+fa_threshold: 0.8
+
+wandb_mode: disabled

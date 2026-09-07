@@ -30,7 +30,8 @@ from architecture.deity import DeiTArchitecture
 from architecture.resnet import ResNetArchitecture
 from architecture.module import ModuleArchitecture
 from architecture.erm_ktp_resnet import ERM_KTP_Resnet 
-from architecture.asu_deity import ASUDeiTArchitecture  
+from architecture.asu_deity import ASUDeiTArchitecture
+from architecture.spm import SPMArchitecture
 
 from approx_algo.gradient_ascent import Gradient_Ascent
 from approx_algo.l1_sparse import L1_Sparse
@@ -47,6 +48,10 @@ from approx_algo.salun import SalUn
 from approx_algo.seuf import SEUF
 from approx_algo.grip import GRIP
 from approx_algo.rep_select import RepSelect
+from approx_algo.spm_unlearn import SPM_Unlearn
+from approx_algo.scada_minimax import SCADA_MiniMax
+from approx_algo.pour import POUR_P, POUR_D
+from approx_algo.qmul import QMUL
 
 class ApplyTransform(Dataset):
     def __init__(self, subset, transform=None):
@@ -123,6 +128,24 @@ def main():
         raise ValueError(
             f"\n[ERROR] Mathematical Constraint Violated:\n"
             f"ERM-KTP relies on severing class-specific feature channels.\n"
+            f"It is strictly applicable only for `unlearn_setting: 'class'`.\n"
+            f"Your current config uses: '{unlearn_setting}'."
+        )
+
+    if unlearn_algo in ['scada', 'minimax'] and unlearn_setting != 'class':
+        raise ValueError(
+            f"\n[ERROR] Mathematical Constraint Violated:\n"
+            f"SCADA optimizes a synthetic adversarial sample per target *class*;\n"
+            f"it has no notion of forgetting a random subset or a whole domain.\n"
+            f"It is strictly applicable only for `unlearn_setting: 'class'`.\n"
+            f"Your current config uses: '{unlearn_setting}'."
+        )
+
+    if unlearn_algo in ['pour_p', 'pour_d'] and unlearn_setting != 'class':
+        raise ValueError(
+            f"\n[ERROR] Mathematical Constraint Violated:\n"
+            f"POUR builds its projection from specific forget-class weight vectors;\n"
+            f"it has no notion of forgetting a random subset or a whole domain.\n"
             f"It is strictly applicable only for `unlearn_setting: 'class'`.\n"
             f"Your current config uses: '{unlearn_setting}'."
         )
@@ -313,6 +336,17 @@ def main():
         )
     elif 'asu_deit' in args.model_name:
         model = ASUDeiTArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=False, device=device)
+    elif 'spm' in args.model_name:
+        # must be checked before the plain 'resnet' branch below: model_name
+        # values like 'spm_resnet18' contain "resnet" as a substring.
+        model = SPMArchitecture(
+            model_name=args.model_name,
+            num_classes=num_classes,
+            pretrained=False,
+            num_experts=getattr(args, 'num_experts', 4),
+            support_size=getattr(args, 'support_size', 512),
+            device=device
+        )
     elif 'resnet' in args.model_name:
         model = ResNetArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=False, device=device)
     elif 'deit' in args.model_name:
@@ -338,7 +372,26 @@ def main():
     
     model.load_state_dict(torch.load(args.pretrained_model_path, map_location=device))
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
-    criteria = nn.CrossEntropyLoss()
+    # SPM's forward() returns log-probabilities (see architecture/spm.py), so
+    # it needs NLLLoss rather than CrossEntropyLoss (which would apply its
+    # own log_softmax on top of already-log-softmax'd values). SPM_Unlearn
+    # itself never calls .backward() through this, but learn.py's base
+    # training does, so the two must agree on what the checkpoint expects.
+    criteria = nn.NLLLoss() if isinstance(model, SPMArchitecture) else nn.CrossEntropyLoss()
+
+    if isinstance(model, SPMArchitecture):
+        # Rebuild the FULL (pre-unlearning) support bank -- forget + retain --
+        # so evaluate() reflects the loaded checkpoint's actual behavior
+        # before SPM_Unlearn deletes the forget-set samples from it. Mirrors
+        # the "matched utility" setup: what a naive undefended model with the
+        # full memory would score, as the starting point for the algorithm's
+        # own effect measurement.
+        from torch.utils.data import ConcatDataset
+        full_support_loader = DataLoader(
+            ApplyTransform(ConcatDataset([forget_subset, retain_subset]), get_retain_train_transform()),
+            batch_size=args.batch_size, shuffle=True, num_workers=4
+        )
+        model.build_support(full_support_loader, max_support=getattr(args, 'support_size', 512))
 
     print("\n" + "="*40)
     print(f"[*] starting unlearning phase ({unlearn_algo})")
@@ -390,10 +443,11 @@ def main():
             tau=getattr(args, 'tau', 5.0),
             support_weight=getattr(args, 'support_weight', 1.0)
         )
-    elif unlearn_algo == 'salun':  
+    elif unlearn_algo == 'salun':
         algo_wrapper = SalUn(
             **algo_kwargs,
-            alpha=getattr(args, 'alpha', 1.0) 
+            alpha=getattr(args, 'alpha', 1.0),
+            mask_ratio=getattr(args, 'mask_ratio', 0.5)
         )
     elif unlearn_algo in ['module', 'module_unlearn_algo']:
         algo_wrapper = Module(
@@ -458,6 +512,38 @@ def main():
             use_lora_adversary=getattr(args, 'use_lora_adversary', False),
             lora_rank=getattr(args, 'lora_rank', 8),
             lora_lr=getattr(args, 'lora_lr', 0.05),
+        )
+    elif unlearn_algo == 'spm':
+        algo_wrapper = SPM_Unlearn(**algo_kwargs, support_size=getattr(args, 'support_size', None))
+    elif unlearn_algo in ['scada', 'minimax']:
+        algo_wrapper = SCADA_MiniMax(
+            **algo_kwargs,
+            forget_classes=getattr(args, 'forget_classes', [0]),
+            m_alpha=getattr(args, 'm_alpha', 10.0),
+            m_samples=getattr(args, 'm_samples', 4),
+            m_update=getattr(args, 'm_update', 1),
+            m_label=getattr(args, 'm_label', 'rescaled'),
+            iter_per_epoch=getattr(args, 'iter_per_epoch', None),
+        )
+    elif unlearn_algo == 'pour_p':
+        algo_wrapper = POUR_P(
+            **algo_kwargs,
+            forget_classes=getattr(args, 'forget_classes', [0]),
+        )
+    elif unlearn_algo == 'pour_d':
+        algo_wrapper = POUR_D(
+            **algo_kwargs,
+            forget_classes=getattr(args, 'forget_classes', [0]),
+            loss_function=getattr(args, 'pour_loss_function', 'l2_regression'),
+            freeze_classifier=getattr(args, 'pour_freeze_classifier', True),
+            freeze_bn_stats=getattr(args, 'pour_freeze_bn_stats', True),
+        )
+    elif unlearn_algo == 'qmul':
+        algo_wrapper = QMUL(
+            **algo_kwargs,
+            use_similar_labels=getattr(args, 'use_similar_labels', True),
+            mask_ratio=getattr(args, 'mask_ratio', None),
+            full_norm_scan=getattr(args, 'full_norm_scan', False),
         )
     elif unlearn_algo == 'finetune':
         algo_wrapper = Finetune(**algo_kwargs)

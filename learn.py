@@ -27,6 +27,7 @@ from architecture.resnet import ResNetArchitecture
 from architecture.module import ModuleArchitecture
 from architecture.erm_ktp_resnet import ERM_KTP_Resnet
 from architecture.asu_deity import ASUDeiTArchitecture
+from architecture.spm import SPMArchitecture
 
 from approx_algo.gradient_ascent import Gradient_Ascent
 from approx_algo.module import Module
@@ -249,6 +250,17 @@ def main():
     elif 'asu_deit' in args.model_name:
         model = ASUDeiTArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=args.pretrained,
                                     device=device)
+    elif 'spm' in args.model_name:
+        # must be checked before the plain 'resnet' branch below: model_name
+        # values like 'spm_resnet18' contain "resnet" as a substring.
+        model = SPMArchitecture(
+            model_name=args.model_name,
+            num_classes=num_classes,
+            pretrained=args.pretrained,
+            num_experts=getattr(args, 'num_experts', 4),
+            support_size=getattr(args, 'support_size', 512),
+            device=device
+        )
     elif 'resnet' in args.model_name:
         model = ResNetArchitecture(model_name=args.model_name, num_classes=num_classes, pretrained=args.pretrained,
                                    device=device)
@@ -271,8 +283,22 @@ def main():
     else:
         raise ValueError(f"Unsupported model prefix for {args.model_name}")
 
-    criteria = nn.CrossEntropyLoss()
+    # SPM's forward() returns log-probabilities (see architecture/spm.py), so
+    # it needs NLLLoss rather than CrossEntropyLoss (which would apply its
+    # own log_softmax on top of already-log-softmax'd values).
+    criteria = nn.NLLLoss() if isinstance(model, SPMArchitecture) else nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+
+    if isinstance(model, SPMArchitecture):
+        # NOTE: this builds the support bank once, from the current (mostly
+        # untrained) encoder, and keeps it fixed for the whole run. That's a
+        # simplification vs. the original spm_unlearning repo, which
+        # re-samples query/support pairs from every mini-batch so the memory
+        # tracks the encoder as it trains. Good enough for a working
+        # baseline; for closer reproduction, rebuild the bank periodically
+        # (e.g. once per epoch) by calling model.build_support(train_loader)
+        # again inside the training loop.
+        model.build_support(train_loader, max_support=getattr(args, 'support_size', 512))
 
     algo_kwargs = {
         "model": model,

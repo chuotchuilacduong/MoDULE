@@ -1,0 +1,69 @@
+name: pacs_salun_baseline
+output_root: runs
+
+# ---------------------------------------------------------------------------
+# LEARN phase -- identical to config/learn/pacs_module.yaml so SalUn is
+# compared apples-to-apples against `Module` / other baselines on the same
+# pretrained base.
+# ---------------------------------------------------------------------------
+learn:
+  seed: 42
+  dataset: pacs
+  data_dir: ./dataset/data_folder/pacs
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 0.5
+  lambda_div: 0.5
+  ema_alpha: 0.9
+  wandb_mode: disabled
+
+# ---------------------------------------------------------------------------
+# UNLEARN phase -- SalUn (Fan et al., "Salun: Empowering Machine Unlearning
+# via Gradient-based Weight Saliency"), random-forgetting setting. Not
+# restricted to any unlearn_setting -- works with random/class/domain alike,
+# see approx_algo/salun.py.
+# ---------------------------------------------------------------------------
+unlearn:
+  unlearn_algo: salun
+
+  # unlearn.py falls back to a Module-specific run-name template (k_u/alpha/
+  # beta/gamma/eta/...) unless `study_name` is set -- SalUn doesn't have
+  # those fields, so this is required to avoid an AttributeError before
+  # dispatch.
+  study_name: pacs_salun_random
+
+  epochs: 20
+  batch_size: 128
+  lr: 0.0001
+  weight_decay: 0.0
+  fa_threshold: 0.1
+
+  # ---- SalUn-specific knobs (see approx_algo/salun.py) ----
+  #
+  # Regularization weight on the retain-set cross-entropy term.
+  alpha: 0.6
+  # Fraction of parameters (by |grad| global rank on the forget set) treated
+  # as salient/updatable; the rest are hard-frozen (value + optimizer
+  # momentum) every step. Paper default 0.5.
+  mask_ratio: 0.5
+
+  wandb_mode: disabled
+
+# ---------------------------------------------------------------------------
+# Sweep grid (Cartesian). Remove for a single run.
+# ---------------------------------------------------------------------------
+sweep:
+  parameters:
+    unlearn.mask_ratio: [0.1, 0.5, 0.9]

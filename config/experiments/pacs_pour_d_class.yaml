@@ -1,0 +1,74 @@
+name: pacs_pour_d_class_baseline
+output_root: runs
+
+# ---------------------------------------------------------------------------
+# LEARN phase -- identical to config/learn/pacs_module.yaml so POUR-D is
+# compared apples-to-apples against `Module` / other baselines on the same
+# pretrained base.
+# ---------------------------------------------------------------------------
+learn:
+  seed: 42
+  dataset: pacs
+  data_dir: ./dataset/data_folder/pacs
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 0.5
+  lambda_div: 0.5
+  ema_alpha: 0.9
+  wandb_mode: disabled
+
+# ---------------------------------------------------------------------------
+# UNLEARN phase -- POUR-D (ale256/representation_unlearning, CVPR 2026):
+# distills the POUR-P projection into the backbone via a frozen teacher,
+# training on forget_loader only. Only meaningful for class-forgetting (see
+# approx_algo/pour.py) -- forget_classes: [0] matches
+# pacs_module_class_unlearn*.yaml's convention.
+#
+# ModuleArchitecture has no BatchNorm (ViT/LayerNorm), so
+# pour_freeze_bn_stats is a no-op here (harmless, kept for parity with the
+# resnet-targeted original). pour_freeze_classifier is also effectively
+# redundant on this architecture: ModuleArchitecture._set_grad_mode
+# ("unlearning") already freezes everything except the MoE experts before
+# this wrapper is even constructed, classifier_head included -- POUR-D's own
+# freeze/unfreeze of classifier_head just no-ops on top of that.
+# ---------------------------------------------------------------------------
+unlearn:
+  unlearn_algo: pour_d
+  unlearn_setting: class
+  forget_classes: [0]
+  pour_loss_function: l2_regression   # cosine | mse_normalized | l2_regression | huber | angular
+  pour_freeze_classifier: true
+  pour_freeze_bn_stats: true
+
+  # unlearn.py falls back to a Module-specific run-name template (k_u/alpha/
+  # beta/gamma/eta/...) unless `study_name` is set -- POUR-D doesn't have
+  # those fields, so this is required to avoid an AttributeError before
+  # dispatch.
+  study_name: pacs_pour_d_class
+
+  epochs: 20
+  batch_size: 128
+  lr: 0.01                            # POUR-D uses its own internal SGD+cosine schedule at this lr
+  weight_decay: 0.0
+  fa_threshold: 0.1
+
+  wandb_mode: disabled
+
+# ---------------------------------------------------------------------------
+# Sweep grid (Cartesian). Remove for a single run.
+# ---------------------------------------------------------------------------
+sweep:
+  parameters:
+    unlearn.pour_loss_function: [l2_regression, cosine, angular]
