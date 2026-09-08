@@ -13,7 +13,6 @@ from module_diagnostics import (
     print_router_diagnostics,
     compute_localization_diagnostics,
 )
-from metric.online_specialization import OnlineSpecTracker
 
 
 class Module(Gradient_Ascent):
@@ -361,15 +360,6 @@ class Module(Gradient_Ascent):
             )
             domain_mass_sum, domain_tok_count = {}, {}
 
-            # online specialization metrics (this epoch), logged under online_spec/*.
-            # Reuses the pi cached by the forward pass -- no extra inference.
-            num_classes = len(self.class_names) if self.class_names else 0
-            spec_tracker = OnlineSpecTracker(
-                self.num_experts, self.gate_k,
-                num_domains=num_domains, num_classes=num_classes,
-                dead_expert_threshold=self.dead_expert_threshold,
-            )
-
             for batch in self.train_loader:
                 images = batch[0].to(self.device)
                 labels = batch[1].to(self.device)
@@ -415,10 +405,6 @@ class Module(Gradient_Ascent):
                 t_loss.backward()
                 self.optimizer.step()
 
-                # feed this batch's cached routing to the online tracker.
-                spec_domains = batch[2].to(self.device).long() if len(batch) > 2 else None
-                spec_tracker.update(self.model, labels, spec_domains)
-
                 running_total += t_loss.item()
                 running_ce += ce_loss.item()
                 running_sp += sp_loss.item()
@@ -449,9 +435,6 @@ class Module(Gradient_Ascent):
                 "div_loss_weighted": self.lambda_div * running_div / num_batches,
                 "train_steps_accum": total_train_steps
             })
-
-            # per-epoch online specialization scalars (online_spec/*).
-            spec_tracker.log(epoch + 1)
 
             if do_domain_log and domain_mass_sum:
                 # keep the dashboard readable: one small scalar per layer for the

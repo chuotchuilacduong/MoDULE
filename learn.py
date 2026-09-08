@@ -29,7 +29,7 @@ from architecture.erm_ktp_resnet import ERM_KTP_Resnet
 from architecture.asu_deity import ASUDeiTArchitecture
 
 from approx_algo.gradient_ascent import Gradient_Ascent
-from approx_algo.module import Module
+from approx_algo.old_module import Module
 from approx_algo.erm_ktp import ERM_KTP
 
 

@@ -37,7 +37,7 @@ from approx_algo.l1_sparse import L1_Sparse
 from approx_algo.random_labeling import Random_Labeling
 from approx_algo.boundary_shrink import Boundary_Shrink
 from approx_algo.finetune import Finetune
-from approx_algo.module import Module
+from approx_algo.old_module import Module
 from approx_algo.scrub import SCRUB  
 from approx_algo.sg_unlearn import SG_Unlearning 
 from approx_algo.boundary_expanding import Boundary_Expanding 
