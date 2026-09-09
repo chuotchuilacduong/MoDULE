@@ -154,5 +154,6 @@ class OnlineSpecTracker:
             payload[f"{prefix}/overall/class_purity_chance"] = 1.0 / self.C
 
         if to_wandb:
+            print("online_spec")
             wandb.log(payload)
         return payload
