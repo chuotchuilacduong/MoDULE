@@ -52,6 +52,7 @@ from approx_algo.spm_unlearn import SPM_Unlearn
 from approx_algo.scada_minimax import SCADA_MiniMax
 from approx_algo.pour import POUR_P, POUR_D
 from approx_algo.qmul import QMUL
+from approx_algo.ssd import SSD
 
 class ApplyTransform(Dataset):
     def __init__(self, subset, transform=None):
@@ -544,6 +545,14 @@ def main():
             use_similar_labels=getattr(args, 'use_similar_labels', True),
             mask_ratio=getattr(args, 'mask_ratio', None),
             full_norm_scan=getattr(args, 'full_norm_scan', False),
+        )
+    elif unlearn_algo == 'ssd':
+        algo_wrapper = SSD(
+            **algo_kwargs,
+            dampening_constant=getattr(args, 'dampening_constant', 1.0),
+            selection_weighting=getattr(args, 'selection_weighting', 10.0),
+            lower_bound=getattr(args, 'ssd_lower_bound', 1.0),
+            exponent=getattr(args, 'ssd_exponent', 1.0),
         )
     elif unlearn_algo == 'finetune':
         algo_wrapper = Finetune(**algo_kwargs)
