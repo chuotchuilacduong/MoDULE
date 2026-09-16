@@ -1,0 +1,27 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+unlearn_setting: random
+forget_ratio: 0.1
+model_name: module_small_patch16_224
+pretrained: true
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+epochs: 100
+batch_size: 128
+lr: 0.0005
+weight_decay: 0.05
+lambda_sparse: 0.5
+lambda_balance: 0.5
+lambda_div: 0.5
+ema_alpha: 0.9
+domain_mass_log_every: 2
+router_match_log_every: 5
+wandb_mode: online
+output_dir: runs/_base_models/base_balfix_rerun_perround/checkpoints
+_note: Chay lai cua run 5jzeg9uy, cung cau hinh M=8 k=2 100 epoch lambda 0.5/0.5/0.5,
+  nhung log class_mass + domain_mass theo TUNG ROUND (moi 2 epoch) duoi dang scalar
+  phang de W&B ve duong thay vi bang cot.

@@ -1,0 +1,20 @@
+# SPM base (ResNet18 + support bank) trên OfficeHome — bản sao của config/learn/pacs_spm.yaml.
+# learn.py tự đặt output_dir = checkpoint/config/main_table_officehome_seed42/officehome_spm/
+# nên officehome_spm_unlearn_{class,domain}.yaml trỏ pretrained_model_path vào đó.
+seed: 42
+dataset: officehome
+data_dir: ./dataset/data_folder/officehome
+unlearn_setting: random
+forget_ratio: 0.1
+model_name: spm_resnet18
+pretrained: true
+num_experts: 4
+support_size: 512
+gate_k: 1
+expert_depth: 1
+expert_hidden_ratio: 1
+epochs: 30
+batch_size: 64
+lr: 0.001
+wandb_mode: online
+wandb_group: MainTable_OfficeHome_seed42

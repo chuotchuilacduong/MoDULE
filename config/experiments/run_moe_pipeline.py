@@ -125,6 +125,7 @@ def validate(learn, unlearn):
         "dataset", "data_dir", "unlearn_setting", "forget_ratio",
         "forget_classes", "forget_domains", "model_name", "moe_layers",
         "num_experts", "gate_k", "expert_depth", "expert_hidden_ratio", "seed",
+        "mlp_ratio",
     )
     for key in architecture_keys:
         if key in learn:
@@ -237,6 +238,7 @@ def main():
         unlearn_config_path = trial_root / "unlearn.yaml"
         unlearn["pretrained_model_path"] = str(base_checkpoint)
         unlearn["output_dir"] = str(trial_root / "checkpoints")
+        unlearn["study_name"] = study_name
         dump_yaml(unlearn_config_path, unlearn)
         dump_yaml(
             trial_root / "metadata.yaml",

@@ -212,6 +212,18 @@ class SEUF(Gradient_Ascent):
             for param in self.model.classifier_head.parameters():
                 param.requires_grad = True
 
+        # Chẩn đoán: bao nhiêu tham số thực sự được cập nhật, và head có nằm trong đó
+        # không. Với class unlearning, head bị đóng băng thì không thể hạ logit lớp
+        # cần quên, nên FA sẽ đứng im bất kể chạy bao nhiêu epoch.
+        tot = sum(p.numel() for p in self.model.parameters())
+        tr = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        head_tr = any(p.requires_grad for p in getattr(self.model, "classifier_head", []).parameters()) \
+            if hasattr(self.model, "classifier_head") else False
+        n_sel = sum(len(v) for v in selected_per_layer.values())
+        print(f"[SEUF] trainable {tr:,}/{tot:,} ({100*tr/tot:.2f}%) | "
+              f"expert được chọn: {n_sel} (M={self.seuf_M}) | "
+              f"head trainable: {head_tr} | router: {self.seuf_include_router}")
+
     # ----------------------------------------------------------------------
     # SEUF-specific losses
     # ----------------------------------------------------------------------

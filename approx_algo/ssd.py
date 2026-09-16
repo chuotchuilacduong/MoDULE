@@ -100,10 +100,26 @@ class SSD(Gradient_Ascent):
         return combined(), len(self.forget_loader) + len(self.retain_loader)
 
     def _modify_weight(self, original_importance, forget_importance):
+        # Chẩn đoán: SSD cho kết quả TRÙNG KHÍT Original ở mọi (alpha, lambda) kể cả
+        # alpha=0.1 -- tức không phải chuyện siêu tham số. Đếm xem thực sự có bao nhiêu
+        # tham số được chọn, bao nhiêu tham số có gradient (importance > 0), và trọng số
+        # đổi bao nhiêu sau khi áp dụng.
+        n_par = n_sel = n_grad = n_frozen = 0
+        self._diag_per_tensor = []
+        tot_par = 0
+        sq_before = sq_delta = 0.0
         with torch.no_grad():
             for name, p in self.model.named_parameters():
                 oimp = original_importance[name]
                 fimp = forget_importance[name]
+                n_par += 1; tot_par += p.numel()
+                if not p.requires_grad:
+                    n_frozen += 1
+                if fimp.abs().sum().item() > 0:
+                    n_grad += 1
+                n_sel += int((fimp > oimp.mul(self.selection_weighting)).sum().item())
+                sq_before += p.double().pow(2).sum().item()
+                _before = p.detach().clone()
 
                 # Synapse Selection with parameter alpha (selection_weighting)
                 oimp_norm = oimp.mul(self.selection_weighting)
@@ -116,9 +132,53 @@ class SSD(Gradient_Ascent):
                 min_locs = torch.where(update > self.lower_bound)
                 update[min_locs] = self.lower_bound
                 p[locations] = p[locations].mul(update)
+                _d = (p - _before).double().pow(2).sum().item()
+                sq_delta += _d
+                _b = _before.double().pow(2).sum().item()
+                self._diag_per_tensor.append(
+                    (name, (_d ** 0.5) / max(_b ** 0.5, 1e-12),
+                     int(locations[0].numel()) if len(locations) else 0, p.numel()))
+
+        import math
+        print(f"[SSD-DIAG] tensor tham số: {n_par} | ĐÓNG BĂNG (requires_grad=False): {n_frozen} "
+              f"| có gradient (importance>0): {n_grad}")
+        print(f"[SSD-DIAG] phần tử được chọn để giảm: {n_sel:,} / {tot_par:,} "
+              f"({100.0*n_sel/max(tot_par,1):.4f}%)  [alpha={self.selection_weighting}, "
+              f"lambda={self.dampening_constant}]")
+        print(f"[SSD-DIAG] ||W_new - W_old|| / ||W_old|| = "
+              f"{math.sqrt(sq_delta)/max(math.sqrt(sq_before),1e-12):.6e}")
+        # 18.7% trọng số đổi mà hành vi không đổi -> phải xem thay đổi rơi vào ĐÂU.
+        per = sorted(self._diag_per_tensor, key=lambda t: -t[1])
+        print(f"[SSD-DIAG] 12 tensor đổi nhiều nhất (tỉ lệ tương đối):")
+        for nm_, rel, sel, tot in per[:12]:
+            print(f"[SSD-DIAG]   {rel:9.4f}  chọn {sel:>9,}/{tot:<9,}  {nm_}")
+        live = [t for t in per if t[1] > 0]
+        print(f"[SSD-DIAG] số tensor thực sự bị đổi: {len(live)}/{len(per)}")
+        import collections
+        grp = collections.Counter()
+        for nm_, rel, sel, tot in live:
+            if ".moe.experts" in nm_: grp["MoE experts"] += 1
+            elif ".moe.router" in nm_: grp["MoE router"] += 1
+            elif "classifier" in nm_ or "head" in nm_: grp["head"] += 1
+            else: grp["backbone"] += 1
+        print(f"[SSD-DIAG] phân bố tensor bị đổi: {dict(grp)}")
 
     def unlearn(self, fa_threshold, ckpt_path):
         start = time.time()
+
+        # SSD tự quản phạm vi cập nhật, giống RepSelect. unlearn.py gọi
+        # _set_grad_mode("unlearning") cho MỌI thuật toán, và hàm đó đặt
+        # requires_grad = ("moe" in name and "router" not in name) -- tức chỉ expert.
+        # _calc_importance bỏ qua tham số có p.grad is None, nên backbone/router/head
+        # nhận importance = 0, và điều kiện chọn `fimp > alpha*oimp` thành `0 > 0`
+        # = False với MỌI alpha. Đó là lý do SSD trùng khít Original ở cả alpha=10
+        # lẫn alpha=0.1. SSD gốc giảm biên độ trên TOÀN BỘ tham số.
+        n_unfroze = 0
+        for _n, _p in self.model.named_parameters():
+            if not _p.requires_grad:
+                _p.requires_grad = True
+                n_unfroze += 1
+        print(f"[*] SSD: unfroze {n_unfroze} parameter tensor(s) -- SSD owns its update scope.")
 
         forget_importance = self._calc_importance(self.forget_loader, len(self.forget_loader))
         full_train_batches, n_full_train = self._full_train_batches()

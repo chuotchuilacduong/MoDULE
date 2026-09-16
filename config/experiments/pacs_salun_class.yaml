@@ -1,6 +1,5 @@
 name: pacs_salun_class_baseline
 output_root: runs
-
 learn:
   seed: 42
   dataset: pacs
@@ -23,24 +22,35 @@ learn:
   lambda_div: 0.5
   ema_alpha: 0.9
   wandb_mode: disabled
-
-# ---------------------------------------------------------------------------
-# UNLEARN phase -- SalUn, class-forgetting setting. forget_classes: [0]
-# matches pacs_module_class_unlearn*.yaml's convention.
-# ---------------------------------------------------------------------------
 unlearn:
   unlearn_algo: salun
   unlearn_setting: class
-  forget_classes: [0]
-
-  study_name: pacs_salun_class
+  forget_classes:
+  - 0
+  study_name: SalUn__PACS__class__pacs_salun_class__seed42
   epochs: 20
-  batch_size: 128
+  batch_size: 64
   lr: 0.0001
   weight_decay: 0.0
   fa_threshold: 0.1
-
   alpha: 0.6
   mask_ratio: 0.5
-
   wandb_mode: disabled
+  wandb_group: MainTable_PACS_seed42
+  wandb_tags:
+  - main_table
+  - PACS
+  - class
+  - SalUn
+  - seed42
+  baseline_name: SalUn
+  dataset: pacs
+  scenario: class
+  config_name: pacs_salun_class
+  config_path: config/experiments/pacs_salun_class.yaml
+  git_sha: de4238adaca520fc69b1be448f369e20f6783dba
+  learning_rate: 0.0001
+  dataset_name: PACS
+  _note_batch: "gi\u1EA3m 128->64: SalUn t\xEDnh saliency mask c\u1EA7n gradient to\xE0\
+    n m\xF4 h\xECnh; sau khi s\u1EEDa bug ph\u1EA1m vi gradient th\xEC batch 128 g\xE2\
+    y CUDA OOM tr\xEAn card 16.3GB"

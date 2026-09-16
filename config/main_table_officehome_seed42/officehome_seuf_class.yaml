@@ -1,0 +1,58 @@
+name: officehome_seuf_class_baseline
+output_root: runs
+learn:
+  seed: 42
+  dataset: officehome
+  data_dir: ./dataset/data_folder/officehome
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 0.5
+  lambda_div: 0.5
+  ema_alpha: 0.9
+  wandb_mode: online
+unlearn:
+  unlearn_algo: seuf
+  unlearn_setting: class
+  forget_classes:
+  - 0
+  study_name: SEUF__OfficeHome__class__officehome_seuf_class__seed42
+  epochs: 20
+  batch_size: 128
+  lr: 0.0001
+  weight_decay: 0.0
+  fa_threshold: 0.1
+  seuf_M: 1
+  seuf_scope: same_layer
+  seuf_alpha: 1.0
+  seuf_lambda: 1.0
+  seuf_forget_loss: ga
+  seuf_calibration_batches: null
+  seuf_include_router: true
+  seuf_include_head: true
+  wandb_mode: online
+  wandb_group: MainTable_OfficeHome_seed42
+  wandb_tags:
+  - main_table
+  - OfficeHome
+  - class
+  - SEUF
+  - seed42
+  baseline_name: SEUF
+  dataset: officehome
+  scenario: class
+  config_name: officehome_seuf_class
+  config_path: config/main_table_officehome_seed42/officehome_seuf_class.yaml
+  learning_rate: 0.0001
+  dataset_name: OfficeHome

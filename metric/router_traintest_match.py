@@ -131,6 +131,8 @@ def domain_train_test_expert_match(
     device,
     k_u=1,
     domain_names=None,
+    prefix="router_match",
+    group_kind="domain",
 ):
     """
     Per domain, per MoE layer, compares expert usage between the domain's
@@ -172,7 +174,7 @@ def domain_train_test_expert_match(
     def dname(d):
         if domain_names is not None and 0 <= d < len(domain_names):
             return str(domain_names[d])
-        return f"domain{d}"
+        return f"{group_kind}{d}"
 
     metrics = {}
 
@@ -212,7 +214,7 @@ def domain_train_test_expert_match(
             te_sel_dist = te_sel[l] / max(gate_k, 1)
             sel_tv = _tv_distance(tr_sel_dist, te_sel_dist)
 
-            base = f"router_match/{dname(d)}/layer{l}"
+            base = f"{prefix}/{dname(d)}/layer{l}"
             metrics[f"{base}/mass_topk_overlap"] = mass_overlap
             metrics[f"{base}/mass_tv"] = mass_tv
             metrics[f"{base}/sel_topk_overlap"] = sel_overlap
@@ -245,23 +247,23 @@ def domain_train_test_expert_match(
 
     # -------- per-layer aggregates (across domains) --------
     for l in range(L):
-        metrics[f"router_match/overall/layer{l}/mass_exact_match_rate"] = mass_hits_per_layer[l] / active_domains
-        metrics[f"router_match/overall/layer{l}/mass_mean_topk_overlap"] = mass_overlap_per_layer[l] / active_domains
-        metrics[f"router_match/overall/layer{l}/mass_mean_tv"] = mass_tv_per_layer[l] / active_domains
-        metrics[f"router_match/overall/layer{l}/sel_exact_match_rate"] = sel_hits_per_layer[l] / active_domains
-        metrics[f"router_match/overall/layer{l}/sel_mean_topk_overlap"] = sel_overlap_per_layer[l] / active_domains
-        metrics[f"router_match/overall/layer{l}/sel_mean_tv"] = sel_tv_per_layer[l] / active_domains
+        metrics[f"{prefix}/overall/layer{l}/mass_exact_match_rate"] = mass_hits_per_layer[l] / active_domains
+        metrics[f"{prefix}/overall/layer{l}/mass_mean_topk_overlap"] = mass_overlap_per_layer[l] / active_domains
+        metrics[f"{prefix}/overall/layer{l}/mass_mean_tv"] = mass_tv_per_layer[l] / active_domains
+        metrics[f"{prefix}/overall/layer{l}/sel_exact_match_rate"] = sel_hits_per_layer[l] / active_domains
+        metrics[f"{prefix}/overall/layer{l}/sel_mean_topk_overlap"] = sel_overlap_per_layer[l] / active_domains
+        metrics[f"{prefix}/overall/layer{l}/sel_mean_tv"] = sel_tv_per_layer[l] / active_domains
 
     # -------- overall aggregates (across domain x layer) --------
     total_pairs = L * active_domains
-    metrics["router_match/overall/mass_exact_match_rate"] = sum(mass_hits_per_layer) / max(total_pairs, 1)
-    metrics["router_match/overall/mass_mean_topk_overlap"] = sum(mass_overlap_per_layer) / max(total_pairs, 1)
-    metrics["router_match/overall/mass_mean_tv"] = sum(mass_tv_per_layer) / max(total_pairs, 1)
-    metrics["router_match/overall/sel_exact_match_rate"] = sum(sel_hits_per_layer) / max(total_pairs, 1)
-    metrics["router_match/overall/sel_mean_topk_overlap"] = sum(sel_overlap_per_layer) / max(total_pairs, 1)
-    metrics["router_match/overall/sel_mean_tv"] = sum(sel_tv_per_layer) / max(total_pairs, 1)
+    metrics[f"{prefix}/overall/mass_exact_match_rate"] = sum(mass_hits_per_layer) / max(total_pairs, 1)
+    metrics[f"{prefix}/overall/mass_mean_topk_overlap"] = sum(mass_overlap_per_layer) / max(total_pairs, 1)
+    metrics[f"{prefix}/overall/mass_mean_tv"] = sum(mass_tv_per_layer) / max(total_pairs, 1)
+    metrics[f"{prefix}/overall/sel_exact_match_rate"] = sum(sel_hits_per_layer) / max(total_pairs, 1)
+    metrics[f"{prefix}/overall/sel_mean_topk_overlap"] = sum(sel_overlap_per_layer) / max(total_pairs, 1)
+    metrics[f"{prefix}/overall/sel_mean_tv"] = sum(sel_tv_per_layer) / max(total_pairs, 1)
 
-    metrics["router_match/overall/num_domains"] = active_domains
-    metrics["router_match/overall/k_u"] = k_u
-    metrics["router_match/overall/gate_k"] = gate_k
+    metrics[f"{prefix}/overall/num_domains"] = active_domains
+    metrics[f"{prefix}/overall/k_u"] = k_u
+    metrics[f"{prefix}/overall/gate_k"] = gate_k
     return metrics

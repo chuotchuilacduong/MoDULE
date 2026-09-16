@@ -1,0 +1,30 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+unlearn_setting: random
+forget_ratio: 0.1
+model_name: module_small_patch16_224
+pretrained: true
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+epochs: 30
+batch_size: 128
+lr: 0.0005
+weight_decay: 0.05
+lambda_sparse: 0.0
+lambda_balance: 0.0
+lambda_div: 0.0
+ema_alpha: 0.9
+domain_mass_log_every: 5
+router_match_log_every: 10
+wandb_mode: online
+output_dir: runs/_base_models/s14_moe_no_modular/checkpoints
+mlp_ratio: 4.0
+balance_estimator: none
+diversity_objective: none
+_note: 'S14 / Table 14: architecture control duoi ngan sach tham so khop nhau. Dense
+  dung moe_layers=12xF qua DUNG code path cua MoDULE de loai bo khac biet ngoai y
+  muon.'

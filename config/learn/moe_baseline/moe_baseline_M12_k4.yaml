@@ -1,0 +1,33 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+pretrained: true
+moe_layers: FFFFFFFFFFSS
+num_experts: 12
+gate_k: 4
+expert_depth: 2
+expert_hidden_ratio: 2
+unlearn_setting: random
+forget_ratio: 0.1
+epochs: 100
+batch_size: 128
+lr: 0.0005
+weight_decay: 0.05
+lambda_sparse: 0.0
+lambda_balance: 0.25
+lambda_div: 0.0
+ema_alpha: 0.9
+grad_clip_norm: 1.0
+lr_schedule: cosine
+warmup_epochs: 2
+output_dir: runs/_base_models/moe_baseline_M12_k4/checkpoints
+experiment: abla_learn_num_experts
+M: 12
+k: 4
+balance_estimator: minibatch
+diversity_objective: none
+domain_mass_log_every: 10
+router_match_log_every: 20
+_note: 'Dong ''MoE'' cua Table 1: kien truc va lich huan luyen GIONG HET base ModULE
+  M=12/k=4 (lambda_bal=0.25, grad_clip 1.0, cosine, 100 epoch), chi tat L_sp va L_div.'

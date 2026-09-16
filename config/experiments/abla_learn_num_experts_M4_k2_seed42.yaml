@@ -1,0 +1,42 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+pretrained: true
+moe_layers: FFFFFFFFFFSS
+num_experts: 4
+# gate_k=2, not 4: with M=4 a top-4-of-4 router is dense by construction, so the
+# layer is not a sparse MoE at all -- RFO pins at 1.0000 and k_u=4=M makes expert
+# selection vacuous. k=2 keeps M=4 a genuine sparse point (2 of 4 active), matching
+# the repo's own sweep in pacs_module_num_experts_sweep.yaml which uses gate_k=2.
+# NOTE: this row therefore has learn_k=2 while M=8/12/16/24 have learn_k=4.
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+
+# split construction: learn.py needs these to build the forget/retain split.
+# matches the repo's canonical num-experts sweep (pacs_module_num_experts_sweep.yaml).
+unlearn_setting: random
+forget_ratio: 0.1
+
+epochs: 100
+batch_size: 128
+lr: 0.0005
+weight_decay: 0.05
+lambda_sparse: 0.1
+lambda_balance: 0.25
+lambda_div: 0.1
+ema_alpha: 0.9
+
+# stability only, not tuning: the previous M=12/k=4 100-epoch run under a constant
+# LR with no clipping diverged at epoch ~57 (train CE 0.056 -> 1.81), ending at
+# TA 80.68% vs 91.99% at its pre-divergence best. see pacs_module_base_M12_k4.yaml.
+grad_clip_norm: 1.0
+lr_schedule: cosine
+warmup_epochs: 2
+
+output_dir: runs/_base_models/abla_num_experts_M4_k2_seed42/checkpoints
+
+experiment: abla_learn_num_experts
+M: 4
+k: 2

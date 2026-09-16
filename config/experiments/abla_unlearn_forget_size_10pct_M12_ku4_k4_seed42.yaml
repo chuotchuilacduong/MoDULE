@@ -1,0 +1,47 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+moe_layers: FFFFFFFFFFSS
+num_experts: 12
+gate_k: 4
+expert_depth: 2
+expert_hidden_ratio: 2
+
+unlearn_algo: module
+unlearn_setting: random
+# repo's own construction (unlearn.py random_split on the seeded train split).
+# the permutation depends only on len(train_subset), so the forget sets are
+# nested: 1% subset of 5% subset of 10% subset of 20% subset of 40%. verified empirically.
+forget_ratio: 0.10
+epochs: 20
+batch_size: 128
+lr: 0.0001
+weight_decay: 0.0
+# no stopping: FA can never reach -1.0, so all 20 epochs always run.
+fa_threshold: -1.0
+k_u: 4
+selection_option: diff
+update_scope: selected_experts_and_head
+alpha: 1.0
+beta: 0.25
+gamma: 0.25
+eta: 0.25
+lambda_sparse: 0.1
+lambda_balance: 0.25
+lambda_div: 0.1
+run_eq7_diagnostics: true
+
+pretrained_model_path: runs/_base_models/pacs_M12_k4_seed42/checkpoints/pacs_module_base_M12_k4_best.pt
+output_dir: runs/abla_forget_size/abla_unlearn_forget_size_10pct_M12_ku4_k4_seed42/checkpoints
+study_name: abla_unlearn_forget_size_10pct_M12_ku4_k4_seed42
+
+experiment: abla_unlearn_forget_size
+M: 12
+learn_k: 4
+ku: 4
+forget_size: 10pct
+forget_ratio_of_train: 0.10
+expected_forget_samples: 799
+unlearn_epochs: 20
+checkpoint: runs/_base_models/pacs_M12_k4_seed42/checkpoints/pacs_module_base_M12_k4_best.pt

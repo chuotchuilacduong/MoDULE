@@ -1,0 +1,43 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+moe_layers: FFFFFFFFFFSS
+num_experts: 12
+gate_k: 4
+expert_depth: 2
+expert_hidden_ratio: 2
+
+unlearn_algo: module
+unlearn_setting: domain
+forget_domains: [3]
+epochs: 20
+batch_size: 128
+lr: 0.0001
+weight_decay: 0.0
+# no stopping: FA can never fall to or below -1.0, so all 20 epochs always run
+fa_threshold: -1.0
+k_u: 12
+unlearn_active_k: 8
+selection_option: diff
+update_scope: selected_experts_and_head
+alpha: 1.0
+beta: 1.0
+gamma: 1.0
+eta: 1.0
+
+pretrained_model_path: runs/_base_models/pacs_M12_k4_seed42/checkpoints/pacs_module_base_M12_k4_best.pt
+output_dir: runs/abla_unlearn_activek/abla_unlearn_domain_activek_8_ku12_M12_learnk4_seed42/checkpoints
+study_name: abla_unlearn_domain_activek_8_ku12_M12_learnk4_seed42
+
+experiment: ablation_unlearn_active_topk
+method: MoDULE
+scenario: domain_unlearning
+M: 12
+learn_k: 4
+ku: 12
+unlearn_k: 8
+dense_routing: false
+unlearn_epochs: 20
+target: domain_3_sketch
+checkpoint: runs/_base_models/pacs_M12_k4_seed42/checkpoints/pacs_module_base_M12_k4_best.pt

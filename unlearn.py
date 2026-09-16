@@ -160,14 +160,20 @@ def main():
             f"_ku{args.k_u}_{args.selection_option}_{args.update_scope}"
             f"_a{args.alpha}_b{args.beta}_g{args.gamma}_e{args.eta}_seed{args.seed}"
         )
+    # group/tags are additive: existing behaviour is unchanged when the config
+    # does not set them. run_name still comes from study_name as before.
     wandb.init(
         project="MoE",
         name=run_name,
         config=yaml_config,
+        group=getattr(args, 'wandb_group', None),
+        tags=getattr(args, 'wandb_tags', None),
     )
 
     print("\n" + "="*40)
     print(f"[*] loading dataset: {args.dataset}")
+    # chấp nhận 'PACS'/'pacs' — tránh lỗi im lặng khi config ghi hoa
+    args.dataset = str(args.dataset).lower()
     if args.dataset == 'pacs':
         full_dataset = PACSDataset(root_dir=args.data_dir, transform=None)
         num_classes = 7
@@ -362,6 +368,7 @@ def main():
             expert_depth=args.expert_depth,
             expert_hidden_ratio=args.expert_hidden_ratio,
             gate_k=args.gate_k,
+            mlp_ratio=getattr(args, 'mlp_ratio', 4.0),
             device=device
         )
         model._set_grad_mode("unlearning")
@@ -561,12 +568,32 @@ def main():
 
     algo_wrapper.set_mia_unseen_loader(mia_unseen_loader)
 
+    # SG-Unlearning huấn luyện một proxy phân biệt forget với "unseen". Mặc định
+    # unseen_loader là TOÀN BỘ tập unseen (mọi lớp / mọi domain). Với domain
+    # unlearning thì forget (sketch) và unseen (cả 4 domain) đều được phân loại vào
+    # cùng 7 lớp nên logit trông giống nhau: đo được Proxy M Loss khởi đầu 1.5517,
+    # gần như đúng mức ngẫu nhiên 2*ln(2)=1.3863, tức proxy không có gì để phân biệt
+    # và không sinh ra tín hiệu nào. Dùng tập unseen KHỚP domain/lớp thì proxy phải
+    # phân biệt đã-train với chưa-train trên cùng phân phối -- đúng tín hiệu membership.
+    if getattr(args, 'sg_use_matched_unseen', False):
+        algo_wrapper.unseen_loader = mia_unseen_loader
+        print(f"[*] SG-Unlearning: dùng tập unseen khớp ({len(mia_unseen_subset)} mẫu) "
+              f"thay cho toàn bộ unseen split ({len(unseen_subset)} mẫu)")
+    # optional speed knob; defaults keep the original per-epoch evaluation
+    algo_wrapper.eval_every = getattr(args, 'eval_every', 1)
+    algo_wrapper.eval_full_below = getattr(args, 'eval_full_below', 0.15)
+
     ckpt_prefix = os.path.join(args.output_dir, f"unlearned_{unlearn_algo}_{yaml_filename}")
     fa_threshold = getattr(args, 'fa_threshold', 0.8)
 
     total_unlearn_time = algo_wrapper.unlearn(fa_threshold=fa_threshold, ckpt_path=ckpt_prefix)
 
-    print(f"\n[*] unlearning complete. Total time: {total_unlearn_time:.2f}s")
+    # một số thuật toán unlearn() không trả về thời gian (trả None) -- đừng để
+    # dòng in cuối làm hỏng cả run vốn đã chạy xong và đã lưu checkpoint.
+    if total_unlearn_time is None:
+        print("\n[*] unlearning complete.")
+    else:
+        print(f"\n[*] unlearning complete. Total time: {total_unlearn_time:.2f}s")
     print(f"[*] final model saved to {ckpt_prefix}.pt")
     
     wandb.finish()

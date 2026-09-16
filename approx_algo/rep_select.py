@@ -134,26 +134,28 @@ def _group_parameters(model: nn.Module, layer_filter: str, moe_expert_regex: str
     moe_pat = re.compile(moe_expert_regex)
     buckets: "OrderedDict[str, List[Tuple[str, nn.Parameter]]]" = OrderedDict()
 
-    n_frozen_skipped = 0
+    n_frozen_unfrozen = 0
     for name, param in model.named_parameters():
         if param.ndim < 2 or not layer_pat.search(name):
             continue
         if not param.requires_grad:
             # This benchmark's default grad mode (ModuleArchitecture.
-            # _set_grad_mode("unlearning")) freezes every dense-block MLP,
-            # so these would accumulate an all-zero gradient buffer and hit
-            # the degenerate all-zero-SVD case in _two_sided_collapse for no
-            # reason -- skip them outright rather than project a guaranteed
-            # zero delta.
-            n_frozen_skipped += 1
-            continue
+            # _set_grad_mode("unlearning")) freezes every dense-block MLP.
+            # Skipping them left RepSelect with only the 4 MoE groups, which sit
+            # in blocks 10-11 of 12 behind residual connections: measured, the
+            # update changed those weights by 20.4% after one epoch and by ~4x
+            # ||W|| by epoch 20, yet FA stayed at 99.42 == the un-unlearned model.
+            # RepSelect manages its own scope (like SEUF does), so claim the
+            # parameters it targets instead of silently dropping them.
+            param.requires_grad = True
+            n_frozen_unfrozen += 1
         canonical = moe_pat.sub("experts._.", name)
         buckets.setdefault(canonical, []).append((name, param))
 
     groups = [_MLPGroup(key=k, params=v) for k, v in buckets.items()]
-    if n_frozen_skipped:
-        print(f"[*] RepSelect: skipped {n_frozen_skipped} frozen (requires_grad=False) "
-              f"parameter(s) matching layer_filter.")
+    if n_frozen_unfrozen:
+        print(f"[*] RepSelect: unfroze {n_frozen_unfrozen} parameter(s) matching layer_filter "
+              f"(RepSelect owns its update scope).")
     if not groups:
         print(f"[!] RepSelect: layer_filter={layer_filter!r} matched no trainable parameters.")
     else:
@@ -367,11 +369,35 @@ class RepSelect(Gradient_Ascent):
         closest_fa_score = float("inf")
         alpha_applied = 0.0
 
+        # Chẩn đoán: nếu ||alpha*dW|| nhỏ hơn ||W|| nhiều bậc thì phép cập nhật không
+        # thể đổi dự đoán, và FA sẽ đứng im bất kể chạy bao nhiêu epoch. Trường hợp đó
+        # nguyên nhân nằm ở độ lớn của gradient forget (mô hình đã hội tụ -> gradient
+        # gần 0), không phải ở phạm vi tham số.
+        with torch.no_grad():
+            n2p = dict(self.model.named_parameters())
+            wn = sum(float(n2p[k].data.norm()) ** 2 for k in deltas if k in n2p) ** 0.5
+            dn = sum(float(v.norm()) ** 2 for v in deltas.values()) ** 0.5
+        print(f"[RepSelect] ||dW||={dn:.4e} | ||W||={wn:.4e} | "
+              f"||alpha_max*dW||/||W||={self.lr * dn / max(wn, 1e-12):.3e}  "
+              f"(alpha_max={self.lr})")
+
         for epoch in range(self.num_epoch):
             epoch_start = time.time()
             alpha_target = self.lr * (epoch + 1) / self.num_epoch
+            if epoch == 0:
+                with torch.no_grad():
+                    n2p0 = dict(self.model.named_parameters())
+                    before = {k: n2p0[k].data.clone() for k in deltas if k in n2p0}
+                    print(f"[RepSelect] deltas: {len(deltas)} khoá, khớp tham số: {len(before)}")
             _apply_update(self.model, deltas, alpha=alpha_target - alpha_applied)
             alpha_applied = alpha_target
+            if epoch == 0:
+                with torch.no_grad():
+                    num = sum(float((n2p0[k].data - before[k]).norm()) ** 2 for k in before) ** 0.5
+                    den = sum(float(before[k].norm()) ** 2 for k in before) ** 0.5
+                    print(f"[RepSelect] thay đổi thực tế sau epoch 1: "
+                          f"||W_new-W_old||/||W_old|| = {num/max(den,1e-12):.4e}")
+                    before = None
             epoch_time = time.time() - epoch_start
             total_unlearn_time += epoch_time
 

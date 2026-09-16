@@ -39,6 +39,44 @@ class SPM_Unlearn(Gradient_Ascent):
         # Defaults to whatever the model was already built with.
         self.support_size = support_size or self.model.support_size
 
+    @torch.no_grad()
+    def _diagnose_support_bank(self):
+        """FA=0.00 của SPM là quên thật hay là lớp bị xoá khỏi KHÔNG GIAN ĐẦU RA?
+
+        PairwiseRelationExpert.forward khởi tạo `out = new_zeros(B, num_classes)` rồi
+        CHỈ ghi vào các cột có mặt trong `unique(support_labels)`. Lớp nào vắng khỏi
+        support bank thì cột của nó giữ nguyên 0 với MỌI input -- argmax không bao giờ
+        chọn được nó, nên FA=0.00 là tất yếu về mặt cấu trúc, không phụ thuộc backbone
+        còn mã hoá lớp đó hay không. Hàm này in ra bằng chứng.
+        """
+        lab = self.model.support_labels.detach().cpu()
+        hist = torch.bincount(lab, minlength=self.model.num_classes)
+        print(f"[SPM-DIAG] phân bố nhãn trong support bank (n={lab.numel()}): "
+              + " ".join(f"c{c}:{hist[c].item()}" for c in range(self.model.num_classes)))
+        missing = [c for c in range(self.model.num_classes) if hist[c].item() == 0]
+        print(f"[SPM-DIAG] lớp VẮNG MẶT khỏi support bank: {missing}")
+
+        self.model.eval()
+        cols_zero = torch.ones(self.model.num_classes, dtype=torch.bool)
+        n_seen, argmax_hist = 0, torch.zeros(self.model.num_classes, dtype=torch.long)
+        for batch in self.forget_test_loader:
+            logp, _ = self.model.inference(batch[0].to(self.device))
+            probs = logp.exp()
+            cols_zero &= (probs <= 1e-8).all(dim=0).cpu()
+            argmax_hist += torch.bincount(probs.argmax(1).cpu(),
+                                          minlength=self.model.num_classes)
+            n_seen += probs.size(0)
+            if n_seen >= 512:
+                break
+        dead = [c for c in range(self.model.num_classes) if cols_zero[c]]
+        print(f"[SPM-DIAG] cột xác suất LUÔN = 0 trên {n_seen} ảnh forget: {dead}")
+        print(f"[SPM-DIAG] dự đoán trên ảnh forget: "
+              + " ".join(f"c{c}:{argmax_hist[c].item()}" for c in range(self.model.num_classes)))
+        if missing and set(missing) == set(dead):
+            print(f"[SPM-DIAG] => FA=0 do CẤU TRÚC: lớp {missing} bị xoá khỏi không gian "
+                  f"đầu ra, không phải do backbone đã quên. MIA cũng suy biến vì "
+                  f"log(clamp(0,1e-8)) = -18.420681 hằng số cho mọi mẫu.")
+
     def unlearn(self, fa_threshold, ckpt_path):
         start = time.time()
 
@@ -50,6 +88,8 @@ class SPM_Unlearn(Gradient_Ascent):
 
         print(f"[*] SPM unlearning: rebuilt support bank from retain set "
               f"({n_support} samples) in {total_unlearn_time:.4f}s -- no gradient steps taken.")
+
+        self._diagnose_support_bank()
 
         fa_score, ra_score, ta_score, mia_score = self.evaluate()
         print(f"--> Metrics: RA: {ra_score*100:.2f}% | FA: {fa_score*100:.2f}% | "

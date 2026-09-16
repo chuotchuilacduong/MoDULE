@@ -1,0 +1,52 @@
+name: officehome_salun_domain_baseline
+output_root: runs
+learn:
+  seed: 42
+  dataset: officehome
+  data_dir: ./dataset/data_folder/officehome
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 0.5
+  lambda_div: 0.5
+  ema_alpha: 0.9
+  wandb_mode: online
+unlearn:
+  unlearn_algo: salun
+  unlearn_setting: domain
+  forget_domains:
+  - 3
+  study_name: SalUn__OfficeHome__domain__officehome_salun_domain__seed42
+  epochs: 20
+  batch_size: 64
+  lr: 0.0001
+  weight_decay: 0.0
+  fa_threshold: 0.1
+  alpha: 0.6
+  mask_ratio: 0.5
+  wandb_mode: online
+  wandb_group: MainTable_OfficeHome_seed42
+  wandb_tags:
+  - main_table
+  - OfficeHome
+  - domain
+  - SalUn
+  - seed42
+  baseline_name: SalUn
+  dataset: officehome
+  scenario: domain
+  config_name: officehome_salun_domain
+  config_path: config/main_table_officehome_seed42/officehome_salun_domain.yaml
+  learning_rate: 0.0001
+  dataset_name: OfficeHome

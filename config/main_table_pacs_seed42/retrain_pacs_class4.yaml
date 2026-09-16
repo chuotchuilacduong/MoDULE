@@ -1,0 +1,43 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+pretrained: true
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+epochs: 15
+batch_size: 128
+lr: 0.0005
+weight_decay: 0.05
+lambda_sparse: 0.5
+lambda_balance: 0.5
+lambda_div: 0.5
+ema_alpha: 0.9
+unlearn_setting: class
+forget_classes:
+- 4
+output_root: runs/diag_retrain_class4
+k_u: 4
+baseline_name: Retraining
+dataset_name: PACS
+scenario: class
+config_name: retrain_pacs_class4
+config_path: config/main_table_pacs_seed42/retrain_pacs_class4.yaml
+learning_rate: 0.0005
+git_sha: de4238adaca520fc69b1be448f369e20f6783dba
+wandb_group: DIAG_FA_zero_check
+wandb_tags:
+- diag
+- PACS
+- class
+- Retraining
+- seed42
+- class4_horse
+learn_eval_every: 1
+study_name: DIAG-Retraining__PACS__class4_horse__seed42
+_note: 'Chan doan: retrain bo lop 4 (horse). Kiem tra FA=0.00 co phai tinh chat chung
+  cua head 7 chieu bi bo doi mot output, hay chi dung voi lop 0. 15 epoch (khong phai
+  dong bang chinh).'

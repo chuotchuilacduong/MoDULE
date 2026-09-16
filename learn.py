@@ -144,6 +144,8 @@ def main():
     )
 
     # load dataset
+    # chấp nhận 'PACS'/'pacs' — tránh lỗi im lặng khi config ghi hoa
+    args.dataset = str(args.dataset).lower()
     if args.dataset == 'pacs':
         full_dataset = PACSDataset(root_dir=args.data_dir, transform=None)
         num_classes = 7
@@ -238,6 +240,24 @@ def main():
         print(f"[*] router train/test consistency: will monitor {len(per_domain_train_loaders_eval)} domain(s) "
               f"({[d for d in per_domain_train_loaders_eval]})")
 
+    # cùng cấu trúc nhưng nhóm theo NHÃN LỚP, cho class_mass và router_match_class
+    per_class_train_loaders_eval, per_class_test_loaders = {}, {}
+    if hasattr(full_dataset, 'labels'):
+        for c in sorted(set(full_dataset.labels)):
+            tr_idx = [i for i in train_subset.indices if full_dataset.labels[i] == c]
+            te_idx = [i for i in test_subset.indices if full_dataset.labels[i] == c]
+            if not tr_idx or not te_idx:
+                continue
+            per_class_train_loaders_eval[c] = DataLoader(
+                ApplyTransform(Subset(full_dataset, tr_idx), get_test_transform()),
+                batch_size=args.batch_size, shuffle=False, num_workers=4,
+            )
+            per_class_test_loaders[c] = DataLoader(
+                ApplyTransform(Subset(full_dataset, te_idx), get_test_transform()),
+                batch_size=args.batch_size, shuffle=False, num_workers=4,
+            )
+        print(f"[*] router train/test consistency (CLASS): {len(per_class_train_loaders_eval)} class(es)")
+
     if 'erm_ktp_resnet' in args.model_name:
         backbone_name = args.model_name.replace('erm_ktp_', '')
         model = ERM_KTP_Resnet(
@@ -277,6 +297,7 @@ def main():
             expert_depth=args.expert_depth,
             expert_hidden_ratio=args.expert_hidden_ratio,
             gate_k=args.gate_k,
+            mlp_ratio=getattr(args, 'mlp_ratio', 4.0),
             device=device
         )
         model._set_grad_mode("learning")
@@ -332,10 +353,14 @@ def main():
             domain_names=getattr(full_dataset, 'domain_names', None),
             class_names=getattr(full_dataset, 'class_names', None),
             domain_mass_log_every=getattr(args, 'domain_mass_log_every', 10),
+            balance_estimator=getattr(args, 'balance_estimator', 'minibatch'),
+            diversity_objective=getattr(args, 'diversity_objective', 'output_decorrelation'),
             dead_expert_threshold=getattr(args, 'dead_expert_threshold', 0.01),
             run_eq7_diagnostics=getattr(args, 'run_eq7_diagnostics', False),
             per_domain_train_loaders_eval=per_domain_train_loaders_eval,
             per_domain_test_loaders=per_domain_test_loaders,
+            per_class_train_loaders_eval=per_class_train_loaders_eval,
+            per_class_test_loaders=per_class_test_loaders,
             router_match_log_every=getattr(args, 'router_match_log_every', 1),
             router_match_k_u=getattr(args, 'router_match_k_u', 1),
             grad_accum_steps=getattr(args, 'grad_accum_steps', 1),

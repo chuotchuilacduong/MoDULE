@@ -13,6 +13,7 @@ enabled via run_eq7_diagnostics in each unlearning config.
 import csv
 import json
 import re
+import sys
 from pathlib import Path
 
 import yaml
@@ -21,6 +22,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 LOG_DIR = REPO_ROOT / "results" / "logs"
 CONFIG_DIR = REPO_ROOT / "config" / "experiments"
 OUT_CSV = REPO_ROOT / "results" / "abla_num_experts.csv"
+
+# scenario: "random" (default) or "class" -- pass as argv[1]
+SCENARIO = sys.argv[1] if len(sys.argv) > 1 else "random"
+assert SCENARIO in ("random", "class", "domain"), f"unknown scenario: {SCENARIO}"
+_TAG = "" if SCENARIO == "random" else f"{SCENARIO}_"
+OUT_CSV = REPO_ROOT / "results" / ("abla_num_experts.csv" if SCENARIO == "random"
+                                   else f"abla_num_experts_{SCENARIO}.csv")
 
 MS = [4, 8, 12, 16, 24]
 
@@ -58,8 +66,13 @@ def fmt_runtime(sec):
 def main():
     rows = []
     for M in MS:
-        un = f"abla_unlearn_num_experts_M{M}_ku4_k4_seed42"
+        un = f"abla_unlearn_num_experts_{_TAG}M{M}_ku4_k4_seed42"
         ln = f"abla_learn_num_experts_M{M}_k4_seed42"
+        # M=4 is trained at gate_k=2: a top-4-of-4 router is dense by construction,
+        # so k=4 would not be a sparse-MoE point at all. Fall back to that variant.
+        if not (LOG_DIR / f"{un}.log").exists() and (LOG_DIR / f"{un.replace('_k4_', '_k2_')}.log").exists():
+            un = un.replace("_k4_", "_k2_")
+            ln = ln.replace("_k4_", "_k2_")
         utext = read(LOG_DIR / f"{un}.log")
         ltext = read(LOG_DIR / f"{ln}.log")
         cfg_path = CONFIG_DIR / f"{un}.yaml"
@@ -104,8 +117,10 @@ def main():
         w.writeheader()
         w.writerows(rows)
 
-    print("\nABLATION — NUMBER OF EXPERTS")
-    print("(PACS, learn_k=4, ku=4, seed=42, random forget 10% of train, final epoch)")
+    print(f"\nABLATION — NUMBER OF EXPERTS  [{SCENARIO} unlearning]")
+    print(f"(PACS, learn_k=4, ku=4, seed=42, "
+          f"{ {'class':'forget class 0','domain':'forget domain 3 (sketch)'}
+             .get(SCENARIO,'random forget 10% of train') }, final epoch)")
     print()
     print(f"{'M':<5}|{'Clean TA':>10} |{'FA':>9} |{'RA':>9} |{'MIA':>8} |"
           f"{'Routing Overlap':>16} |{'Runtime':>9} | W&B Run")

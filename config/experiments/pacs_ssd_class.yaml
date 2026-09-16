@@ -1,6 +1,5 @@
 name: pacs_ssd_class_baseline
 output_root: runs
-
 learn:
   seed: 42
   dataset: pacs
@@ -23,26 +22,34 @@ learn:
   lambda_div: 0.5
   ema_alpha: 0.9
   wandb_mode: disabled
-
-# ---------------------------------------------------------------------------
-# UNLEARN phase -- SSD, class-forgetting setting. forget_classes: [0]
-# matches pacs_module_class_unlearn*.yaml's convention.
-# ---------------------------------------------------------------------------
 unlearn:
   unlearn_algo: ssd
   unlearn_setting: class
-  forget_classes: [0]
-
-  study_name: pacs_ssd_class
+  forget_classes:
+  - 0
+  study_name: SSD__PACS__class__pacs_ssd_class__seed42
   epochs: 1
   batch_size: 128
   lr: 0.0001
   weight_decay: 0.0
   fa_threshold: 0.8
-
   selection_weighting: 10.0
   dampening_constant: 1.0
   ssd_lower_bound: 1.0
   ssd_exponent: 1.0
-
-  wandb_mode: disabled
+  wandb_mode: online
+  wandb_group: MainTable_PACS_seed42
+  wandb_tags:
+  - main_table
+  - PACS
+  - class
+  - SSD
+  - seed42
+  baseline_name: SSD
+  dataset: pacs
+  dataset_name: PACS
+  scenario: class
+  config_name: pacs_ssd_class
+  config_path: config/experiments/pacs_ssd_class.yaml
+  learning_rate: 0.0001
+  git_sha: ff4030d762131286490489a4a1ddf20087ec4d25

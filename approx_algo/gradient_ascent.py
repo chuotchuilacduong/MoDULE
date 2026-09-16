@@ -46,6 +46,18 @@ class Gradient_Ascent:
         # entry points should override it via set_mia_unseen_loader().
         self.mia_unseen_loader = unseen_loader
 
+        # evaluate() cost: FA(forget) + RA(retain-train) + TA(test) + MIA. RA and MIA
+        # dominate -- on PACS class they forward ~8k images/epoch vs ~1.4k trained.
+        # eval_every > 1 computes RA/TA/MIA only on scheduled epochs and reuses the
+        # last values otherwise. FA is ALWAYS recomputed because fa_threshold early
+        # stopping depends on it. A full evaluation is forced on the first and last
+        # epoch, and whenever FA drops to eval_full_below, so an early-stopping run
+        # never reports stale RA/TA/MIA. eval_every=1 is the original behaviour.
+        self.eval_every = 1
+        self.eval_full_below = 0.15
+        self._eval_calls = 0
+        self._last_full = None
+
     def set_mia_unseen_loader(self, loader):
         """
         held-out samples used as the non-member side of the MIA.
@@ -155,9 +167,22 @@ class Gradient_Ascent:
         torch.save(self.model.state_dict(), f"{ckpt_path}.pt")
 
     def evaluate(self):
+        self._eval_calls += 1
         fa_score = forget_acc(self.model, self.forget_test_loader, self.device)
-        ra_score = retain_acc(self.model, self.retain_test_loader, self.device)
-        ta_score = test_acc(self.model, self.test_loader, self.device)
-        # members = the forget set, non-members = held-out samples matched to it
-        mia_score = mia(self.model, self.forget_test_loader, self.mia_unseen_loader, self.device)
+
+        due = (
+            self.eval_every <= 1
+            or self._last_full is None                      # first call
+            or self._eval_calls % self.eval_every == 0
+            or self._eval_calls >= self.num_epoch           # last epoch
+            or fa_score <= self.eval_full_below             # about to early-stop
+        )
+        if due:
+            ra_score = retain_acc(self.model, self.retain_test_loader, self.device)
+            ta_score = test_acc(self.model, self.test_loader, self.device)
+            # members = the forget set, non-members = held-out samples matched to it
+            mia_score = mia(self.model, self.forget_test_loader, self.mia_unseen_loader, self.device)
+            self._last_full = (ra_score, ta_score, mia_score)
+
+        ra_score, ta_score, mia_score = self._last_full
         return fa_score, ra_score, ta_score, mia_score

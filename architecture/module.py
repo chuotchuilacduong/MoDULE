@@ -40,6 +40,11 @@ class DeepMoELayer(nn.Module):
 
         self.last_pi_all = None
         self.last_pi = None
+        # gated mass theo DANH TÍNH expert: [N, num_experts], bằng 0 với expert không
+        # được chọn, bằng trọng số gate đã chuẩn hoá với expert được chọn. Đây là
+        # g_{l,t,m} của paper (Eq. 33) -- last_pi KHÔNG dùng được cho L_bal vì nó là
+        # [N, k] và chiều thứ hai là THỨ HẠNG, không phải expert nào.
+        self.last_gate_mass = None
         self.last_h = None
         
         self.allowed_experts = None
@@ -107,6 +112,8 @@ class DeepMoELayer(nn.Module):
 
         # local softmax on active expert.
         self.last_pi = gate_weights
+        # phân tán trọng số gate về đúng cột expert của nó, cho L_bal (paper Eq. 33).
+        self.last_gate_mass = torch.zeros_like(probs).scatter(1, topk_indices, gate_weights)
 
         return out.reshape(B, S, D)
 
@@ -226,7 +233,7 @@ class ModuleBackbone(nn.Module):
 
 class ModuleFeaturizer(nn.Module):
     def __init__(self, model_name='deit_small_patch16_224', pretrained=True, moe_layers=None,
-                 num_experts=6, expert_depth=2, expert_hidden_ratio=2.0, gate_k=1):
+                 num_experts=6, expert_depth=2, expert_hidden_ratio=2.0, gate_k=1, mlp_ratio=4.0):
         super().__init__()
         
         base_name = model_name.replace('_distilled', '')
@@ -245,7 +252,7 @@ class ModuleFeaturizer(nn.Module):
         
         self.model = ModuleBackbone(
             embed_dim=cfg['dim'], depth=cfg['depth'], num_heads=cfg['heads'], 
-            moe_layers=moe_layers, distilled=is_distilled,
+            moe_layers=moe_layers, distilled=is_distilled, mlp_ratio=mlp_ratio,
             num_experts=num_experts, expert_depth=expert_depth, 
             expert_hidden_ratio=expert_hidden_ratio, gate_k=gate_k
         )
@@ -261,6 +268,16 @@ class ModuleFeaturizer(nn.Module):
             for k in ['head.weight', 'head.bias', 'head_dist.weight', 'head_dist.bias']:
                 state_dict.pop(k, None)
             
+            # strict=False chỉ bỏ qua khoá thừa/thiếu, KHÔNG bỏ qua lệch kích thước.
+            # Với mlp_ratio != 4 (control dense same-total của Table 14) thì fc1/fc2 lệch
+            # shape và load_state_dict sẽ ném lỗi. Lọc ra và BÁO RÕ để ghi vào bảng.
+            own = self.model.state_dict()
+            skipped = [k for k, v in state_dict.items()
+                       if k in own and own[k].shape != v.shape]
+            if skipped:
+                print(f"[ModuleFeaturizer] bỏ qua {len(skipped)} trọng số pretrained lệch shape "
+                      f"(khởi tạo ngẫu nhiên): {skipped[:4]}{' ...' if len(skipped) > 4 else ''}")
+                state_dict = {k: v for k, v in state_dict.items() if k not in skipped}
             self.model.load_state_dict(state_dict, strict=False)
             
         self.n_outputs = cfg['dim']
@@ -279,7 +296,8 @@ class ModuleArchitecture(BaseArchitecture):
     ]
 
     def __init__(self, model_name='module_small_patch16_224', num_classes=7, pretrained=True, device="cuda",
-                 moe_layers=None, num_experts=6, expert_depth=2, expert_hidden_ratio=2.0, gate_k=1):
+                 moe_layers=None, num_experts=6, expert_depth=2, expert_hidden_ratio=2.0, gate_k=1,
+                 mlp_ratio=4.0):
         if model_name not in self.SUPPORTED_MODELS:
             raise ValueError(f"Model '{model_name}' is not supported.")
 
@@ -288,7 +306,7 @@ class ModuleArchitecture(BaseArchitecture):
         featurizer = ModuleFeaturizer(
             model_name=deit_model_name, pretrained=pretrained, moe_layers=moe_layers,
             num_experts=num_experts, expert_depth=expert_depth, 
-            expert_hidden_ratio=expert_hidden_ratio, gate_k=gate_k
+            expert_hidden_ratio=expert_hidden_ratio, gate_k=gate_k, mlp_ratio=mlp_ratio
         )
         
         embed_dim = featurizer.n_outputs

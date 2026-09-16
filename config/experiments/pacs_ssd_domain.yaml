@@ -1,6 +1,5 @@
 name: pacs_ssd_domain_baseline
 output_root: runs
-
 learn:
   seed: 42
   dataset: pacs
@@ -23,27 +22,34 @@ learn:
   lambda_div: 0.5
   ema_alpha: 0.9
   wandb_mode: disabled
-
-# ---------------------------------------------------------------------------
-# UNLEARN phase -- SSD, domain-forgetting setting. forget_domains: [3] = the
-# 4th PACS domain in sorted order (sketch), matching
-# pacs_module_domain_unlearn_sketch.yaml's convention.
-# ---------------------------------------------------------------------------
 unlearn:
   unlearn_algo: ssd
   unlearn_setting: domain
-  forget_domains: [3]
-
-  study_name: pacs_ssd_domain
+  forget_domains:
+  - 3
+  study_name: SSD__PACS__domain__pacs_ssd_domain__seed42
   epochs: 1
   batch_size: 128
   lr: 0.0001
   weight_decay: 0.0
   fa_threshold: 0.8
-
   selection_weighting: 10.0
   dampening_constant: 1.0
   ssd_lower_bound: 1.0
   ssd_exponent: 1.0
-
-  wandb_mode: disabled
+  wandb_mode: online
+  wandb_group: MainTable_PACS_seed42
+  wandb_tags:
+  - main_table
+  - PACS
+  - domain
+  - SSD
+  - seed42
+  baseline_name: SSD
+  dataset: pacs
+  dataset_name: PACS
+  scenario: domain
+  config_name: pacs_ssd_domain
+  config_path: config/experiments/pacs_ssd_domain.yaml
+  learning_rate: 0.0001
+  git_sha: ff4030d762131286490489a4a1ddf20087ec4d25

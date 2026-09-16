@@ -1,10 +1,5 @@
 name: pacs_grip_domain_baseline
 output_root: runs
-
-# ---------------------------------------------------------------------------
-# LEARN phase -- identical to config/learn/pacs_module.yaml so GRIP is
-# compared apples-to-apples against `Module` on the same pretrained base.
-# ---------------------------------------------------------------------------
 learn:
   seed: 42
   dataset: pacs
@@ -27,28 +22,17 @@ learn:
   lambda_div: 0.5
   ema_alpha: 0.9
   wandb_mode: disabled
-
-# ---------------------------------------------------------------------------
-# UNLEARN phase -- GRIP (Zhu, Wei, Gu, Li, COLM 2026), domain-forgetting
-# setting. forget_domains: [3] = the 4th PACS domain in sorted order
-# (sketch), matching pacs_module_domain_unlearn_sketch.yaml's convention.
-# ---------------------------------------------------------------------------
 unlearn:
   unlearn_algo: grip
   unlearn_setting: domain
-  forget_domains: [3]
-
-  # unlearn.py falls back to a Module-specific run-name template (k_u/alpha/
-  # beta/gamma/eta/...) unless `study_name` is set -- GRIP doesn't have those
-  # fields, so this is required to avoid an AttributeError before dispatch.
-  study_name: pacs_grip_domain
+  forget_domains:
+  - 3
+  study_name: GRIP__PACS__domain__pacs_grip_domain__seed42
   epochs: 20
-  batch_size: 128
+  batch_size: 64
   lr: 0.0001
   weight_decay: 0.0
   fa_threshold: 0.1
-
-  # ---- GRIP-specific knobs (see approx_algo/grip.py) ----
   grip_method: B
   retain_weight: 1.0
   grad_clip: 1.0
@@ -58,8 +42,26 @@ unlearn:
   epsilon_null: 0.01
   epsilon_margin: 0.01
   kaczmarz_max_iters: 100
-  ptc_ridge: 1.0e-6
+  ptc_ridge: 1.0e-06
   ptc_acceptance_cosine: 0.95
   unlock_router: true
-
   wandb_mode: disabled
+  wandb_group: MainTable_PACS_seed42
+  wandb_tags:
+  - main_table
+  - PACS
+  - domain
+  - GRIP
+  - seed42
+  baseline_name: GRIP
+  dataset: pacs
+  scenario: domain
+  config_name: pacs_grip_domain
+  config_path: config/experiments/pacs_grip_domain.yaml
+  git_sha: de4238adaca520fc69b1be448f369e20f6783dba
+  learning_rate: 0.0001
+  dataset_name: PACS
+  _note_batch: "gi\u1EA3m 128->64: GRIP gi\u1EEF retain_cache_size=128 batch trong\
+    \ b\u1ED9 nh\u1EDB; sau khi s\u1EEDa bug ph\u1EA1m vi gradient (to\xE0n b\u1ED9\
+    \ 29.15M tham s\u1ED1 trainable) \u0111\u1EC9nh b\u1ED9 nh\u1EDB c\u1EE7a c\xE1\
+    c baseline kh\xE1c \u0111\xE3 l\xE0 11.8-12.6GB/16.3GB n\xEAn GRIP OOM"

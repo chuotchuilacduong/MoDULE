@@ -43,6 +43,21 @@ class Module(Gradient_Ascent):
             # ablation config
             selection_option="diff",
             update_scope="selected_experts_and_head",
+            # S12 / Table 15: công tắc TƯỜNG MINH cho ước lượng cân bằng.
+            # Trước đây chọn ngầm bằng `use_ema = train_loader.batch_size <= 8`, nên với
+            # batch_size=128 của mọi config thì nhánh EMA là code chết và ema_alpha vô tác dụng.
+            # Đổi batch size để bật EMA sẽ làm nhiễu ablation (kích thước batch cũng đổi theo).
+            # Giá trị: "minibatch" | "ema" | "none".
+            balance_estimator="minibatch",
+            # S13 / Table 16: "none" | "cosine" | "orthogonality" | "cka" | "output_decorrelation"
+            diversity_objective="output_decorrelation",
+            # Table 15 (muc H): regularizer giu tinh modular TRONG pha unlearn.
+            #   "none"             -- tat han
+            #   "option2_cross"    -- decorrelate selected vs frozen tren minibatch HIEN TAI
+            #                         (co chua mau forget) = DUNG hanh vi code cu
+            #   "option3_retained" -- nhu tren nhung tinh tren mau RETAIN, dung nhu paper mo ta
+            #   "option1_geometry" -- giu ma tran tuong dong cheo giong TRUOC khi unlearn
+            unlearn_modularity_reg="option2_cross",
             device="cuda",
             # optional: domain/class names for periodic router diagnostics (PACS/OfficeHome only --
             # datasets without a domain field simply skip this, see `run_full_router_diag` in learn()).
@@ -56,6 +71,9 @@ class Module(Gradient_Ascent):
             # domain id; empty dicts (default) disable the check.
             per_domain_train_loaders_eval=None,
             per_domain_test_loaders=None,
+            # tương tự nhưng theo NHÃN LỚP, cho class_mass và router_match_class
+            per_class_train_loaders_eval=None,
+            per_class_test_loaders=None,
             router_match_log_every=1,
             router_match_k_u=1,
             # learn()-phase stability. defaults are off so existing runs keep
@@ -104,6 +122,16 @@ class Module(Gradient_Ascent):
 
         self.selection_option = selection_option
         self.update_scope = update_scope
+        if balance_estimator not in ("minibatch", "ema", "none"):
+            raise ValueError(
+                f"balance_estimator must be 'minibatch', 'ema' or 'none' (got {balance_estimator!r})")
+        self.balance_estimator = balance_estimator
+        if diversity_objective not in ("none","cosine","orthogonality","cka","output_decorrelation"):
+            raise ValueError(f"diversity_objective không hợp lệ: {diversity_objective!r}")
+        self.diversity_objective = diversity_objective
+        if unlearn_modularity_reg not in ("none","option1_geometry","option2_cross","option3_retained"):
+            raise ValueError(f"unlearn_modularity_reg khong hop le: {unlearn_modularity_reg!r}")
+        self.unlearn_modularity_reg = unlearn_modularity_reg
 
         self.domain_names = domain_names
         self.class_names = class_names
@@ -113,12 +141,18 @@ class Module(Gradient_Ascent):
 
         self.per_domain_train_loaders_eval = per_domain_train_loaders_eval or {}
         self.per_domain_test_loaders = per_domain_test_loaders or {}
+        self.per_class_train_loaders_eval = per_class_train_loaders_eval or {}
+        self.per_class_test_loaders = per_class_test_loaders or {}
         self.router_match_log_every = router_match_log_every
         self.router_match_k_u = router_match_k_u
         self.grad_clip_norm = grad_clip_norm
         self.lr_schedule = lr_schedule
         self.warmup_epochs = warmup_epochs
         self.grad_accum_steps = max(int(grad_accum_steps), 1)
+        # đánh giá FA/RA/TA/MIA mỗi N epoch trong learn(). 0 = tắt (mặc định,
+        # giống hành vi cũ: chỉ đánh giá một lần sau vòng lặp). Đặt 1 để lấy
+        # quỹ đạo FA theo epoch, ví dụ cho baseline Retraining.
+        self.learn_eval_every = 0
         self.unlearn_active_k = unlearn_active_k
 
         # full router diagnostics (entropy, dead experts, per-domain mass, per-expert
@@ -176,36 +210,105 @@ class Module(Gradient_Ascent):
                 f"eq7_{phase.lower()}/RFO": RFO,
             })
 
+    @torch.no_grad()
+    def _mass_on_loader(self, loader, num_classes, num_domains):
+        """Tính ma trận (lớp x expert) và (domain x expert) trên một loader cho trước.
+
+        Dùng cho tập TEST: các khoá class_mass/domain_mass không hậu tố được tích luỹ
+        ngay trong vòng lặp huấn luyện nên chúng thuộc tập TRAIN và có augmentation.
+        Hàm này chạy một lượt forward riêng với transform tất định.
+        """
+        was_training = self.model.training
+        self.model.eval()
+        cmass, cnt_c, dmass, cnt_d = {}, None, {}, None
+        for batch in loader:
+            images = batch[0].to(self.device)
+            labels = batch[1].to(self.device).long()
+            domains = batch[2].to(self.device).long() if len(batch) > 2 else None
+            self.model.inference(images)
+            for name, module in self.model.featurizer.model.named_modules():
+                if module.__class__.__name__ != 'DeepMoELayer':
+                    continue
+                pi = module.last_pi_all.detach()
+                E = pi.size(-1)
+                S = pi.size(0) // labels.size(0)
+                if name not in cmass:
+                    cmass[name] = torch.zeros(num_classes, E, device=self.device)
+                    dmass[name] = torch.zeros(num_domains, E, device=self.device)
+                cmass[name].index_add_(0, labels.repeat_interleave(S), pi)
+                if domains is not None:
+                    dmass[name].index_add_(0, domains.repeat_interleave(S), pi)
+            if cnt_c is None:
+                cnt_c = torch.zeros(num_classes, device=self.device)
+                cnt_d = torch.zeros(num_domains, device=self.device)
+            cnt_c.index_add_(0, labels, torch.full((labels.size(0),), float(S), device=self.device))
+            if domains is not None:
+                cnt_d.index_add_(0, domains, torch.full((domains.size(0),), float(S), device=self.device))
+        if was_training:
+            self.model.train()
+        return cmass, cnt_c, dmass, cnt_d
+
     def _loss_sparse(self, pi):
         entropy = -(pi * (pi + 1e-8).log()).sum(dim=-1)
         return entropy.mean()
 
-    def _loss_balance(self, pi, module_name, use_ema, ema_states, ema_alpha):
-        M = pi.size(-1)
-        mean_pi = pi.mean(dim=0)
+    def _loss_balance(self, gate_mass, module_name, use_ema, ema_states, ema_alpha):
+        """Gated-mass balancing, paper Eq. (4)/(34).
+
+        L_bal = M * sum_m (gbar_m - 1/M)^2,  gbar_m = mean_tokens g_{t,m}
+
+        `gate_mass` phải là [N, M] theo DANH TÍNH expert (DeepMoELayer.last_gate_mass).
+        Trước đây hàm này nhận `last_pi` có shape [N, k], nên `M = pi.size(-1)` đọc ra
+        k chứ không phải M, và nó cân bằng THỨ HẠNG gate thay vì cân bằng expert --
+        tức không hề có áp lực chống sụp đổ router. Hệ số M đứng trước cũng bị thiếu.
+        """
+        M = gate_mass.size(-1)
+        mean_mass = gate_mass.mean(dim=0)
 
         if use_ema:
             if module_name not in ema_states:
-                ema_states[module_name] = torch.ones_like(mean_pi) / M
-            effective_pi = ema_alpha * ema_states[module_name] + (1 - ema_alpha) * mean_pi
-            ema_states[module_name] = effective_pi.detach()
+                ema_states[module_name] = torch.ones_like(mean_mass) / M
+            effective = ema_alpha * ema_states[module_name] + (1 - ema_alpha) * mean_mass
+            ema_states[module_name] = effective.detach()
         else:
-            effective_pi = mean_pi
+            effective = mean_mass
 
-        return ((effective_pi - 1.0 / M) ** 2).sum()
+        return M * ((effective - 1.0 / M) ** 2).sum()
 
+    # ------------------------------------------------------------------ #
+    # S13 / Table 16: năm mục tiêu phân hoá expert.
+    #
+    # Lưu ý sai lệch code-paper: paper Eq. (5)/(39) mô tả L_div là CENTERED
+    # linear CKA, nhưng hàm duy nhất có trong repo lại là phạt bình phương
+    # Frobenius của tương quan chéo, KHÔNG centering và chuẩn hoá bằng ||H||_F
+    # thay vì ||H^T H||_F. Đó là output decorrelation, không phải CKA. Nên hàm
+    # cũ được giữ nguyên hành vi dưới tên "output_decorrelation" (mọi kết quả
+    # đã chạy trước đây đều thuộc mục tiêu này), và "cka" là bản cài đúng Eq. 39.
+    # ------------------------------------------------------------------ #
     def _loss_diversity(self, h_stack, eps=1e-6):
-        B, M, r = h_stack.shape
-        if M < 2:
+        obj = getattr(self, "diversity_objective", "output_decorrelation")
+        if obj == "none":
             return h_stack.new_zeros(())
+        if h_stack.shape[1] < 2:
+            return h_stack.new_zeros(())
+        fn = {
+            "output_decorrelation": self._div_output_decorrelation,
+            "cka": self._div_centered_cka,
+            "cosine": self._div_cosine,
+            "orthogonality": self._div_orthogonality,
+        }.get(obj)
+        if fn is None:
+            raise ValueError(f"diversity_objective không hợp lệ: {obj!r}")
+        return fn(h_stack, eps)
 
+    def _div_output_decorrelation(self, h_stack, eps=1e-6):
+        """Hàm gốc của repo, giữ nguyên từng phép tính để tái lập được kết quả cũ."""
+        B, M, r = h_stack.shape
         loss = h_stack.new_zeros(1).squeeze()
         H_tilde = []
         for m in range(M):
             H_m = h_stack[:, m, :]
-            norm_F = H_m.norm(p='fro').clamp(min=eps)
-            H_tilde.append(H_m / norm_F)
-
+            H_tilde.append(H_m / H_m.norm(p='fro').clamp(min=eps))
         for m in range(M):
             for n in range(M):
                 if m == n:
@@ -213,6 +316,40 @@ class Module(Gradient_Ascent):
                 C = (H_tilde[m].T @ H_tilde[n])
                 loss += (C ** 2).sum()
         return loss
+
+    def _div_centered_cka(self, h_stack, eps=1e-6):
+        """Centered linear CKA, paper Eq. (38)-(40).
+
+        H~ = J H với J = I - (1/Bp) 11^T ; CKA = ||H~m^T H~n||_F^2
+                                                / (||H~m^T H~m||_F ||H~n^T H~n||_F)
+        Trung bình trên các cặp KHÔNG thứ tự, hệ số 2/(M(M-1)).
+        """
+        B, M, r = h_stack.shape
+        Hc = h_stack - h_stack.mean(dim=0, keepdim=True)      # centering theo probe batch
+        gram_self = [(Hc[:, m, :].T @ Hc[:, m, :]).norm(p='fro').clamp(min=eps) for m in range(M)]
+        loss = h_stack.new_zeros(1).squeeze()
+        for m in range(M):
+            for n in range(m + 1, M):
+                cross = (Hc[:, m, :].T @ Hc[:, n, :]).norm(p='fro') ** 2
+                loss = loss + cross / (gram_self[m] * gram_self[n])
+        return loss * (2.0 / (M * (M - 1)))
+
+    def _div_cosine(self, h_stack, eps=1e-6):
+        """Cosine similarity trung bình giữa đầu ra các expert trên từng mẫu probe."""
+        B, M, r = h_stack.shape
+        Hn = h_stack / h_stack.norm(dim=-1, keepdim=True).clamp(min=eps)   # [B, M, r]
+        sim = torch.einsum("bmr,bnr->bmn", Hn, Hn)                          # [B, M, M]
+        off = ~torch.eye(M, dtype=torch.bool, device=h_stack.device)
+        return sim[:, off].abs().mean()
+
+    def _div_orthogonality(self, h_stack, eps=1e-6):
+        """||W^T W - I||_F^2 trên ma trận đầu ra expert đã chuẩn hoá cột."""
+        B, M, r = h_stack.shape
+        H = h_stack.permute(1, 0, 2).reshape(M, -1)                         # [M, B*r]
+        H = H / H.norm(dim=-1, keepdim=True).clamp(min=eps)
+        G = H @ H.T
+        I = torch.eye(M, device=h_stack.device, dtype=G.dtype)
+        return ((G - I) ** 2).sum() / (M * (M - 1))
 
     # helper function for unlearning phase.
     # get forget and retain mass.
@@ -325,6 +462,35 @@ class Module(Gradient_Ascent):
         target_preds = F.softmax(orig_logits_r, dim=-1)
         return F.kl_div(log_preds, target_preds, reduction='batchmean')
 
+    def _sep_from_H(self, H, m, selected_M_f):
+        """Phat tuong quan cheo giua expert DUOC CHON va expert BI DONG BANG, tren H cho truoc."""
+        loss = torch.tensor(0.0, device=self.device)
+        frozen = [i for i in range(m.num_experts) if i not in selected_M_f]
+        for em in selected_M_f:
+            for n in frozen:
+                Hm = H[:, em, :]; Hn = H[:, n, :]
+                Hm_t = Hm / (torch.norm(Hm, p='fro') + 1e-8)
+                Hn_t = Hn / (torch.norm(Hn, p='fro') + 1e-8)
+                loss = loss + torch.norm(torch.matmul(Hm_t.t(), Hn_t), p='fro') ** 2
+        return loss
+
+    def _sim_matrix(self, H, eps=1e-8):
+        """Ma tran tuong dong cheo giua moi cap expert: [M, M]."""
+        M = H.size(1)
+        Hn = H / (H.flatten(0, 0).norm(dim=(0, 2), keepdim=True).transpose(0, 1) + eps) \
+             if False else H / (H.norm(dim=(0, 2), keepdim=True) + eps)
+        return torch.einsum("bmr,bnr->mn", Hn, Hn)
+
+    def _unlearn_loss_geometry(self, moe_layers, H0_per_layer):
+        """Option 1: giu nguyen ma tran tuong dong cheo da hoc TRUOC khi unlearn."""
+        loss = torch.tensor(0.0, device=self.device)
+        for l_idx, m in enumerate(moe_layers):
+            H0 = H0_per_layer.get(l_idx)
+            if H0 is None:
+                continue
+            loss = loss + ((self._sim_matrix(m.last_h) - self._sim_matrix(H0)) ** 2).sum()
+        return loss
+
     def _unlearn_loss_separation(self, moe_layers, selected_experts_per_layer):
         loss_sep = torch.tensor(0.0, device=self.device)
         for l_idx, m in enumerate(moe_layers):
@@ -355,7 +521,9 @@ class Module(Gradient_Ascent):
 
     def learn(self, ckpt_path, ema_alpha=0.9):
         self.model._set_grad_mode("learning")
-        use_ema = self.train_loader.batch_size <= 8
+        use_ema = (self.balance_estimator == "ema")
+        print(f"[*] balance estimator: {self.balance_estimator}"
+              + (" (L_bal bị tắt hoàn toàn)" if self.balance_estimator == "none" else ""))
         ema_states = {}
         total_train_time = 0.0
         total_train_steps = 0
@@ -398,11 +566,13 @@ class Module(Gradient_Ascent):
                     (epoch + 1) % self.domain_mass_log_every == 0 or epoch == self.num_epoch - 1
             )
             domain_mass_sum, domain_tok_count = {}, {}
+            class_mass_sum, class_tok_count = {}, {}
 
             for micro_step, batch in enumerate(self.train_loader):
                 images = batch[0].to(self.device)
                 labels = batch[1].to(self.device)
                 domains = batch[2].to(self.device).long() if (do_domain_log and len(batch) > 2) else None
+                labels_for_mass = labels if do_domain_log else None
 
                 # gradient accumulation: zero only at the start of an accumulation
                 # window, step only at its end. with grad_accum_steps == 1 this is
@@ -411,11 +581,12 @@ class Module(Gradient_Ascent):
                     self.optimizer.zero_grad()
                 logits, _ = self.model.forward_with_grad(images)
 
-                all_pi, all_h, moe_names = [], [], []
+                all_pi, all_h, all_gate_mass, moe_names = [], [], [], []
                 for name, module in self.model.featurizer.model.named_modules():
                     if module.__class__.__name__ == 'DeepMoELayer':
                         all_pi.append(module.last_pi)
                         all_h.append(module.last_h)
+                        all_gate_mass.append(module.last_gate_mass)
                         moe_names.append(name)
 
                         if domains is not None:
@@ -430,12 +601,28 @@ class Module(Gradient_Ascent):
                             domain_tok_count[name].index_add_(0, domain_tok,
                                                               torch.ones_like(domain_tok, dtype=torch.float))
 
+                        if labels_for_mass is not None:
+                            pi_all_c = module.last_pi_all.detach()
+                            n_exp = pi_all_c.size(-1)
+                            Sc = pi_all_c.size(0) // labels_for_mass.size(0)
+                            cls_tok = labels_for_mass.repeat_interleave(Sc)
+                            n_cls = len(self.class_names) if self.class_names else int(cls_tok.max().item()) + 1
+                            if name not in class_mass_sum:
+                                class_mass_sum[name] = torch.zeros(n_cls, n_exp, device=self.device)
+                                class_tok_count[name] = torch.zeros(n_cls, device=self.device)
+                            class_mass_sum[name].index_add_(0, cls_tok, pi_all_c)
+                            class_tok_count[name].index_add_(0, cls_tok,
+                                                             torch.ones_like(cls_tok, dtype=torch.float))
+
                 ce_loss = self.criteria(logits, labels)
 
                 if len(all_pi) > 0:
                     sp_loss = sum([self._loss_sparse(pi) for pi in all_pi]) / len(all_pi)
-                    bal_loss = sum([self._loss_balance(pi, n, use_ema, ema_states, ema_alpha) for pi, n in
-                                    zip(all_pi, moe_names)]) / len(all_pi)
+                    if self.balance_estimator == "none":
+                        bal_loss = torch.tensor(0.0, device=self.device)
+                    else:
+                        bal_loss = sum([self._loss_balance(gm, n, use_ema, ema_states, ema_alpha) for gm, n in
+                                        zip(all_gate_mass, moe_names)]) / len(all_gate_mass)
                     div_loss = sum([self._loss_diversity(h) for h in all_h]) / len(all_h)
                 else:
                     sp_loss = torch.tensor(0.0, device=self.device)
@@ -513,7 +700,74 @@ class Module(Gradient_Ascent):
                         columns=["domain"] + [f"e{e}" for e in range(mass.size(1))],
                         data=[[self.domain_names[d]] + mass[d].tolist() for d in range(mass.size(0))],
                     )
+                    shrd = mass.sum(dim=0)
+                    domain_payload[f"domain_mass/{name}/collapse"] = (
+                        shrd.max() / shrd.sum().clamp(min=1e-12)).item()
+                    for d in range(mass.size(0)):
+                        for e in range(mass.size(1)):
+                            domain_payload[f"domain_mass/{name}/{self.domain_names[d]}/e{e}"] = mass[d, e].item()
                 wandb.log(domain_payload)
+                if class_mass_sum:
+                    class_payload = {"epoch": epoch + 1}
+                    for name, mass_sum in class_mass_sum.items():
+                        massc = mass_sum / class_tok_count[name].clamp(min=1).unsqueeze(-1)
+                        class_payload[f"class_mass/{name}/spread"] = (
+                            massc.max(dim=0).values - massc.min(dim=0).values).mean().item()
+                        cnames = self.class_names or [str(i) for i in range(massc.size(0))]
+                        class_payload[f"class_mass/{name}/table"] = wandb.Table(
+                            columns=["class"] + [f"e{e}" for e in range(massc.size(1))],
+                            data=[[cnames[c]] + massc[c].tolist() for c in range(massc.size(0))],
+                        )
+                        # scalar phẳng: wandb.Table chỉ cho một ảnh chụp (vẽ ra biểu đồ cột),
+                        # còn các khoá dưới đây vẽ được thành ĐƯỜNG theo epoch.
+                        shr = massc.sum(dim=0)
+                        class_payload[f"class_mass/{name}/collapse"] = (
+                            shr.max() / shr.sum().clamp(min=1e-12)).item()
+                        for c in range(massc.size(0)):
+                            for e in range(massc.size(1)):
+                                class_payload[f"class_mass/{name}/{cnames[c]}/e{e}"] = massc[c, e].item()
+                    wandb.log(class_payload)
+                    print(f"  [class-mass @ epoch {epoch + 1}] " +
+                          ", ".join(f"{n}: spread={v:.4f}"
+                                    for n, v in class_payload.items() if n.endswith("/spread")))
+
+                # bảng trên tập TEST (transform tất định, không augmentation)
+                if self.test_loader is not None:
+                    n_cls = len(self.class_names) if self.class_names else 7
+                    cm_t, cc_t, dm_t, cd_t = self._mass_on_loader(self.test_loader, n_cls, num_domains)
+                    test_payload = {"epoch": epoch + 1}
+                    cnames_t = self.class_names or [str(i) for i in range(n_cls)]
+                    for name, ms in cm_t.items():
+                        Mt = ms / cc_t.clamp(min=1).unsqueeze(-1)
+                        test_payload[f"class_mass_test/{name}/spread"] = (
+                            Mt.max(0).values - Mt.min(0).values).mean().item()
+                        sh = Mt.sum(0)
+                        test_payload[f"class_mass_test/{name}/collapse"] = (
+                            sh.max() / sh.sum().clamp(min=1e-12)).item()
+                        test_payload[f"class_mass_test/{name}/table"] = wandb.Table(
+                            columns=["class"] + [f"e{e}" for e in range(Mt.size(1))],
+                            data=[[cnames_t[c]] + Mt[c].tolist() for c in range(Mt.size(0))])
+                        for c in range(Mt.size(0)):
+                            for e in range(Mt.size(1)):
+                                test_payload[f"class_mass_test/{name}/{cnames_t[c]}/e{e}"] = Mt[c, e].item()
+                    for name, ms in dm_t.items():
+                        Dt = ms / cd_t.clamp(min=1).unsqueeze(-1)
+                        test_payload[f"domain_mass_test/{name}/spread"] = (
+                            Dt.max(0).values - Dt.min(0).values).mean().item()
+                        shd = Dt.sum(0)
+                        test_payload[f"domain_mass_test/{name}/collapse"] = (
+                            shd.max() / shd.sum().clamp(min=1e-12)).item()
+                        test_payload[f"domain_mass_test/{name}/table"] = wandb.Table(
+                            columns=["domain"] + [f"e{e}" for e in range(Dt.size(1))],
+                            data=[[self.domain_names[d]] + Dt[d].tolist() for d in range(Dt.size(0))])
+                        for d in range(Dt.size(0)):
+                            for e in range(Dt.size(1)):
+                                test_payload[f"domain_mass_test/{name}/{self.domain_names[d]}/e{e}"] = Dt[d, e].item()
+                    wandb.log(test_payload)
+                    print(f"  [mass-TEST @ epoch {epoch + 1}] " +
+                          ", ".join(f"{n.split('/')[0]}:{n.split('/')[1]}={v:.4f}"
+                                    for n, v in test_payload.items() if n.endswith("/collapse")))
+
                 print(f"  [domain-mass @ epoch {epoch + 1}] " +
                       ", ".join(f"{n}: spread={v:.4f}" for n, v in domain_payload.items() if n.endswith("/spread")))
 
@@ -545,9 +799,40 @@ class Module(Gradient_Ascent):
                           f"(k_u={self.router_match_k_u}, "
                           f"gate_k={match_metrics['router_match/overall/gate_k']}, "
                           f"{match_metrics['router_match/overall/num_domains']} domains)")
+                # cùng phép đo nhưng nhóm theo NHÃN LỚP thay vì domain
+                if self.per_class_train_loaders_eval and self.per_class_test_loaders:
+                    cmatch = domain_train_test_expert_match(
+                        self.model,
+                        self.per_class_train_loaders_eval,
+                        self.per_class_test_loaders,
+                        self.device,
+                        k_u=self.router_match_k_u,
+                        domain_names=self.class_names,
+                        prefix="router_match_class",
+                        group_kind="class",
+                    )
+                    if cmatch:
+                        cmatch["epoch"] = epoch + 1
+                        wandb.log(cmatch)
+                        print(f"  [router-match-CLASS @ epoch {epoch + 1}] "
+                              f"mass_exact={cmatch['router_match_class/overall/mass_exact_match_rate']:.4f} "
+                              f"sel_exact={cmatch['router_match_class/overall/sel_exact_match_rate']:.4f} "
+                              f"sel_tv={cmatch['router_match_class/overall/sel_mean_tv']:.4f} "
+                              f"({cmatch['router_match_class/overall/num_domains']} classes)")
+
                 # `domain_train_test_expert_match` sets the model to eval();
                 # restore train() before the next training epoch.
                 self.model.train()
+
+            # đánh giá theo epoch (tuỳ chọn): learn() vốn chỉ đánh giá một lần sau
+            # toàn bộ vòng lặp, nên không có quỹ đạo FA/RA/TA/MIA để xem epoch nào
+            # tốt hơn. Bật learn_eval_every để ghi lại từng epoch.
+            if self.learn_eval_every and (epoch + 1) % self.learn_eval_every == 0:
+                fa_e, ra_e, ta_e, mia_e = self.evaluate()
+                self.model.train()
+                print(f"  [eval @ epoch {epoch + 1}] ra: {ra_e*100:.2f}% | fa: {fa_e*100:.2f}% | "
+                      f"ta: {ta_e*100:.2f}% | mia: {mia_e:.4f}")
+                wandb.log({"epoch": epoch + 1, "fa": fa_e, "ra": ra_e, "ta": ta_e, "mia": mia_e})
 
             # keep at most one local checkpoint on disk during training (overwritten
             # in place), and push it to wandb immediately -- avoids accumulating one
