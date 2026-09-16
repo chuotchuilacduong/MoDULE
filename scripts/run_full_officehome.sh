@@ -80,6 +80,11 @@ for s in class domain; do
   step "04_spm__${s}" "$PY" -m unlearn --config "$CFG/officehome_spm_unlearn_${s}.yaml"
 done
 
+# ---------- 4b. Original model (base chưa unlearn) trên đúng split class/domain ----------
+for s in class domain; do
+  step "04_original__${s}" "$PY" scripts/eval_original.py --config "$CFG/ft_officehome_${s}.yaml"
+done
+
 # ---------- 5. retraining ----------
 for s in class domain; do
   step "05_retrain__${s}" "$PY" -m retrain_baseline --config "$CFG/retrain_officehome_${s}.yaml"
