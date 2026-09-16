@@ -63,9 +63,11 @@ class Module(Gradient_Ascent):
             probe_size=0,
             # L_sep = -I(G;E): tách tuyến đường theo nhóm (metric/route_separation.py).
             #   lambda_sep=0 -> tắt hẳn (mặc định, không đổi hành vi cũ)
-            #   sep_axis: "domain" | "class" | "both" | list theo từng MoE layer, vd ["domain","class"]
-            #             "both" = I(D;E) + I(C;E) trên MỌI layer (cạnh tranh cùng M expert);
-            #             list   = mỗi layer một trục (layer 10 domain, layer 11 class) -- không cạnh tranh
+            #   sep_axis: trục nhóm G. Nguyên tố: "domain" | "class" | "joint" (ô class x domain, G = C*D).
+            #             Ghép bằng "+", vd "joint+domain+class"; "both" = "domain+class". List theo từng
+            #             MoE layer, vd ["domain","class"] (layer 10 domain, layer 11 class); "none" = tắt layer đó.
+            #             "joint": mỗi expert nhận một NHÓM Ô (vài class x vài domain) thay vì 1 class hoặc 1 domain;
+            #             thêm marginal "+domain+class" để các ô cùng expert nằm cùng hàng/cột (khối chữ nhật).
             #   sep_use_gated: True -> gated mass (Eq. 29), False -> softmax thô (Mod-Squad)
             #   sep_ema_alpha: >0 để làm mượt W qua các batch khi mỗi batch có ít mẫu/nhóm
             lambda_sep=0.0,
@@ -156,13 +158,17 @@ class Module(Gradient_Ascent):
             raise ValueError(f"sparse_target phải là 'gate' hoặc 'pi_all' (nhận {sparse_target!r})")
         self.sparse_target = sparse_target
         self.probe_size = int(probe_size)
-        if isinstance(sep_axis, (list, tuple)):
-            bad = [a for a in sep_axis if a not in ("domain", "class", "both", "none")]
+        def _parse_axis(a):
+            a = "domain+class" if a == "both" else str(a)
+            atoms = [t.strip() for t in a.split("+") if t.strip()]
+            bad = [t for t in atoms if t not in ("domain", "class", "joint", "none")]
             if bad:
-                raise ValueError(f"sep_axis theo layer chỉ nhận domain/class/both/none (nhận {bad})")
-            sep_axis = list(sep_axis)
-        elif sep_axis not in ("domain", "class", "both"):
-            raise ValueError(f"sep_axis phải là 'domain', 'class', 'both' hoặc list theo layer (nhận {sep_axis!r})")
+                raise ValueError(f"sep_axis chỉ nhận domain/class/joint/none ghép bằng '+' (nhận {bad})")
+            return [t for t in atoms if t != "none"]
+        if isinstance(sep_axis, (list, tuple)):
+            sep_axis = [_parse_axis(a) for a in sep_axis]      # list[list[str]] theo layer
+        else:
+            sep_axis = _parse_axis(sep_axis)                   # list[str] cho mọi layer
         self.lambda_sep = float(lambda_sep)
         self.sep_axis = sep_axis
         self.sep_use_gated = bool(sep_use_gated)
@@ -704,18 +710,18 @@ class Module(Gradient_Ascent):
                 sep_loss = torch.tensor(0.0, device=self.device)
                 if self.lambda_sep > 0 and len(moe_modules) > 0:
                     n_cls = len(self.class_names) if self.class_names else int(self.model.num_classes)
-                    group_of = {"domain": (batch_domains, num_domains), "class": (labels, n_cls)}
-                    # trục theo layer: chuỗi -> áp cho mọi layer; list -> theo thứ tự MoE layer
-                    if isinstance(self.sep_axis, list):
-                        axes = [self.sep_axis[i] if i < len(self.sep_axis) else "none"
+                    joint = (labels * num_domains + batch_domains) if (batch_domains is not None and num_domains > 0) else None
+                    group_of = {"domain": (batch_domains, num_domains), "class": (labels, n_cls),
+                                "joint": (joint, n_cls * max(num_domains, 1))}
+                    # trục theo layer: list[str] -> áp cho mọi layer; list[list] -> theo thứ tự MoE layer
+                    if self.sep_axis and isinstance(self.sep_axis[0], list):
+                        axes = [self.sep_axis[i] if i < len(self.sep_axis) else []
                                 for i in range(len(moe_modules))]
                     else:
                         axes = [self.sep_axis] * len(moe_modules)
                     terms = []
                     for (name, module), ax in zip(moe_modules, axes):
-                        for a in (("domain", "class") if ax == "both" else (ax,)):
-                            if a == "none":
-                                continue
+                        for a in ax:
                             g, n_g = group_of[a]
                             if g is None or n_g < 2:
                                 continue

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # L_sep theo trục CLASS trên PACS (đợt 2). 4 run x 30 epoch (~23 phút/run trên server):
 #   Đợt 3 (cả hai trục):  RUNS="sep_on_both sep_on_layerwise sep_on_both_sumgate" bash scripts/run_sep_test_class.sh
+#   Đợt 4 (ô class x domain): RUNS="sep_on_joint sep_on_joint_both sep_on_joint_both_sumgate" bash scripts/run_sep_test_class.sh
 #   sep_on_class          lambda_sep=0.5, axis=class, gate softmax (mặc định)   -> so với sep_off (đợt 1)
 #   sep_on_class_pi       như trên nhưng MI tính trên softmax pi (sep_use_gated=false, không bị cap 0.731)
 #   sep_off_sumgate       lambda_sep=0,   gate_norm=sum  (đối chứng cho dòng dưới; đổi forward pass)
