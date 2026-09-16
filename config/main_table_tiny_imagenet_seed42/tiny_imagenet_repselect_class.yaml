@@ -1,0 +1,76 @@
+name: tiny_imagenet_repselect_class_baseline_c20
+output_root: runs
+learn:
+  seed: 42
+  dataset: tiny_imagenet
+  data_dir: ./dataset/data_folder/tiny_imagenet/tiny-imagenet-200
+  unlearn_setting: random
+  forget_ratio: 0.1
+  model_name: module_small_patch16_224
+  pretrained: true
+  moe_layers: FFFFFFFFFFSS
+  num_experts: 8
+  gate_k: 2
+  expert_depth: 2
+  expert_hidden_ratio: 2
+  epochs: 100
+  batch_size: 128
+  lr: 0.0005
+  weight_decay: 0.05
+  lambda_sparse: 0.5
+  lambda_balance: 0.5
+  lambda_div: 0.5
+  ema_alpha: 0.9
+  wandb_mode: online
+unlearn:
+  unlearn_algo: rep_select
+  unlearn_setting: class
+  forget_classes:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
+  study_name: RepSelect__TinyImageNet__class__tiny_imagenet_repselect_class__seed42_c20
+  epochs: 20
+  batch_size: 128
+  fa_threshold: 0.1
+  lr: 0.0001
+  weight_decay: 0.0
+  rep_select_lr: 2.0
+  k_pcs: 3
+  use_lora_adversary: false
+  lora_rank: 8
+  lora_lr: 0.05
+  wandb_mode: online
+  wandb_group: MainTable_TinyImageNet_seed42_c20
+  wandb_tags:
+  - main_table
+  - TinyImageNet
+  - class
+  - RepSelect
+  - seed42
+  - c20
+  baseline_name: RepSelect
+  dataset: tiny_imagenet
+  scenario: class
+  config_name: tiny_imagenet_repselect_class
+  config_path: config/main_table_tiny_imagenet_seed42/tiny_imagenet_repselect_class.yaml
+  learning_rate: 0.0001
+  dataset_name: TinyImageNet
+  data_dir: ./dataset/data_folder/tiny_imagenet/tiny-imagenet-200

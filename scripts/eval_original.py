@@ -55,8 +55,17 @@ def main():
     bs = getattr(args, "batch_size", 128)
 
     ds_name = str(getattr(args, 'dataset', 'pacs')).lower()
-    full = (OfficeHomeDataset if ds_name == 'officehome' else PACSDataset)(root_dir=args.data_dir, transform=None)
-    ds_label = 'OfficeHome' if ds_name == 'officehome' else 'PACS'
+    if ds_name == 'officehome':
+        full = OfficeHomeDataset(root_dir=args.data_dir, transform=None)
+    elif ds_name == 'cifar100':
+        from dataset.pytorch_dataset.cifar100 import CIFAR100Dataset
+        full = CIFAR100Dataset(root_dir=args.data_dir, split="train", transform=None)
+    elif ds_name == 'tiny_imagenet':
+        from dataset.pytorch_dataset.tiny_imagenet import TinyImageNetDataset
+        full = TinyImageNetDataset(root_dir=args.data_dir, transform=None)
+    else:
+        full = PACSDataset(root_dir=args.data_dir, transform=None)
+    ds_label = {'officehome': 'OfficeHome', 'cifar100': 'CIFAR100', 'tiny_imagenet': 'TinyImageNet'}.get(ds_name, 'PACS')
     n = len(full); tr = int(0.8 * n); te = int(0.1 * n)
     g = torch.Generator().manual_seed(args.seed)
     train_s, test_s, unseen_s = random_split(full, [tr, te, n - tr - te], generator=g)

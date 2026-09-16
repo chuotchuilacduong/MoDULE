@@ -99,6 +99,14 @@ def main():
     elif args.dataset == 'officehome':
         full_dataset = OfficeHomeDataset(root_dir=args.data_dir, transform=None)
         num_classes = 65
+    elif args.dataset == 'cifar100':
+        from dataset.pytorch_dataset.cifar100 import CIFAR100Dataset
+        full_dataset = CIFAR100Dataset(root_dir=args.data_dir, split="train", transform=None)
+        num_classes = 100
+    elif args.dataset == 'tiny_imagenet':
+        from dataset.pytorch_dataset.tiny_imagenet import TinyImageNetDataset
+        full_dataset = TinyImageNetDataset(root_dir=args.data_dir, transform=None)
+        num_classes = 200
     else:
         raise ValueError(f"Unsupported dataset for this baseline: {args.dataset}")
 
