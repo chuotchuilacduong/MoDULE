@@ -1,4 +1,4 @@
-name: officehome_repselect_domain_baseline
+name: officehome_repselect_domain_baseline_d1
 output_root: runs
 learn:
   seed: 42
@@ -26,8 +26,8 @@ unlearn:
   unlearn_algo: rep_select
   unlearn_setting: domain
   forget_domains:
-  - 3
-  study_name: RepSelect__OfficeHome__domain__officehome_repselect_domain__seed42
+  - 1
+  study_name: RepSelect__OfficeHome__domain__officehome_repselect_domain__seed42_d1
   epochs: 20
   batch_size: 128
   fa_threshold: 0.1
@@ -39,13 +39,14 @@ unlearn:
   lora_rank: 8
   lora_lr: 0.05
   wandb_mode: online
-  wandb_group: MainTable_OfficeHome_seed42
+  wandb_group: MainTable_OfficeHome_seed42_c10d1
   wandb_tags:
   - main_table
   - OfficeHome
   - domain
   - RepSelect
   - seed42
+  - d1
   baseline_name: RepSelect
   dataset: officehome
   scenario: domain

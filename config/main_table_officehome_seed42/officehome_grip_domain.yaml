@@ -1,4 +1,4 @@
-name: officehome_grip_domain_baseline
+name: officehome_grip_domain_baseline_d1
 output_root: runs
 learn:
   seed: 42
@@ -26,8 +26,8 @@ unlearn:
   unlearn_algo: grip
   unlearn_setting: domain
   forget_domains:
-  - 3
-  study_name: GRIP__OfficeHome__domain__officehome_grip_domain__seed42
+  - 1
+  study_name: GRIP__OfficeHome__domain__officehome_grip_domain__seed42_d1
   epochs: 20
   batch_size: 64
   lr: 0.0001
@@ -46,13 +46,14 @@ unlearn:
   ptc_acceptance_cosine: 0.95
   unlock_router: true
   wandb_mode: online
-  wandb_group: MainTable_OfficeHome_seed42
+  wandb_group: MainTable_OfficeHome_seed42_c10d1
   wandb_tags:
   - main_table
   - OfficeHome
   - domain
   - GRIP
   - seed42
+  - d1
   baseline_name: GRIP
   dataset: officehome
   scenario: domain

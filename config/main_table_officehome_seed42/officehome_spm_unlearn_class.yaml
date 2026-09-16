@@ -7,21 +7,31 @@ num_experts: 4
 unlearn_setting: class
 forget_classes:
 - 0
+- 1
+- 2
+- 3
+- 4
+- 5
+- 6
+- 7
+- 8
+- 9
 unlearn_algo: spm
 support_size: 512
-study_name: SPM__OfficeHome__class__officehome_spm_unlearn_class__seed42
+study_name: SPM__OfficeHome__class__officehome_spm_unlearn_class__seed42_c10
 epochs: 1
 batch_size: 64
 lr: 0.001
 fa_threshold: 0.8
 wandb_mode: online
-wandb_group: MainTable_OfficeHome_seed42
+wandb_group: MainTable_OfficeHome_seed42_c10d1
 wandb_tags:
 - main_table
 - OfficeHome
 - class
 - SPM
 - seed42
+- c10
 baseline_name: SPM
 scenario: class
 config_name: officehome_spm_unlearn_class

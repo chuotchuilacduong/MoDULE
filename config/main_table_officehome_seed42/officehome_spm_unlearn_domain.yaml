@@ -6,22 +6,23 @@ pretrained_model_path: checkpoint/config/main_table_officehome_seed42/officehome
 num_experts: 4
 unlearn_setting: domain
 forget_domains:
-- 3
+- 1
 unlearn_algo: spm
 support_size: 512
-study_name: SPM__OfficeHome__domain__officehome_spm_unlearn_domain__seed42
+study_name: SPM__OfficeHome__domain__officehome_spm_unlearn_domain__seed42_d1
 epochs: 1
 batch_size: 64
 lr: 0.001
 fa_threshold: 0.8
 wandb_mode: online
-wandb_group: MainTable_OfficeHome_seed42
+wandb_group: MainTable_OfficeHome_seed42_c10d1
 wandb_tags:
 - main_table
 - OfficeHome
 - domain
 - SPM
 - seed42
+- d1
 baseline_name: SPM
 scenario: domain
 config_name: officehome_spm_unlearn_domain

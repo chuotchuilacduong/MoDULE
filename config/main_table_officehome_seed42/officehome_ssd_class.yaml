@@ -1,4 +1,4 @@
-name: officehome_ssd_class_baseline
+name: officehome_ssd_class_baseline_c10
 output_root: runs
 learn:
   seed: 42
@@ -27,7 +27,16 @@ unlearn:
   unlearn_setting: class
   forget_classes:
   - 0
-  study_name: SSD__OfficeHome__class__officehome_ssd_class__seed42
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  study_name: SSD__OfficeHome__class__officehome_ssd_class__seed42_c10
   epochs: 1
   batch_size: 128
   lr: 0.0001
@@ -38,13 +47,14 @@ unlearn:
   ssd_lower_bound: 1.0
   ssd_exponent: 1.0
   wandb_mode: online
-  wandb_group: MainTable_OfficeHome_seed42
+  wandb_group: MainTable_OfficeHome_seed42_c10d1
   wandb_tags:
   - main_table
   - OfficeHome
   - class
   - SSD
   - seed42
+  - c10
   baseline_name: SSD
   dataset: officehome
   dataset_name: OfficeHome
