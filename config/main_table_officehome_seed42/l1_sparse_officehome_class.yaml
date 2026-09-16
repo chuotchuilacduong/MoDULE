@@ -11,6 +11,15 @@ unlearn_algo: l1_sparse
 unlearn_setting: class
 forget_classes:
 - 0
+- 1
+- 2
+- 3
+- 4
+- 5
+- 6
+- 7
+- 8
+- 9
 epochs: 20
 batch_size: 128
 lr: 0.0001
@@ -18,15 +27,16 @@ weight_decay: 0.0
 fa_threshold: 0.1
 alpha: 0.1
 pretrained_model_path: runs/_base_models/officehome_M8_k2_seed42/checkpoints/learn_best.pt
-output_dir: runs/main_table_officehome_seed42/l1_sparse_officehome_class/checkpoints
-study_name: l1-sparse__OfficeHome__class__l1_sparse_officehome_class__seed42
-wandb_group: MainTable_OfficeHome_seed42
+output_dir: runs/main_table_officehome_seed42_c10d1/l1_sparse_officehome_class/checkpoints
+study_name: l1-sparse__OfficeHome__class__l1_sparse_officehome_class__seed42_c10
+wandb_group: MainTable_OfficeHome_seed42_c10d1
 wandb_tags:
 - main_table
 - OfficeHome
 - class
 - l1-sparse
 - seed42
+- c10
 baseline_name: l1-sparse
 scenario: class
 config_name: l1_sparse_officehome_class

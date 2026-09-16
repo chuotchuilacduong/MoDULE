@@ -1,4 +1,4 @@
-name: officehome_seuf_domain_baseline
+name: officehome_seuf_domain_baseline_d1
 output_root: runs
 learn:
   seed: 42
@@ -26,8 +26,8 @@ unlearn:
   unlearn_algo: seuf
   unlearn_setting: domain
   forget_domains:
-  - 3
-  study_name: SEUF__OfficeHome__domain__officehome_seuf_domain__seed42
+  - 1
+  study_name: SEUF__OfficeHome__domain__officehome_seuf_domain__seed42_d1
   epochs: 20
   batch_size: 128
   lr: 0.0001
@@ -42,13 +42,14 @@ unlearn:
   seuf_include_router: true
   seuf_include_head: true
   wandb_mode: online
-  wandb_group: MainTable_OfficeHome_seed42
+  wandb_group: MainTable_OfficeHome_seed42_c10d1
   wandb_tags:
   - main_table
   - OfficeHome
   - domain
   - SEUF
   - seed42
+  - d1
   baseline_name: SEUF
   dataset: officehome
   scenario: domain

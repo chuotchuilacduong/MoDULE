@@ -10,7 +10,7 @@ expert_hidden_ratio: 2
 unlearn_algo: scrub
 unlearn_setting: domain
 forget_domains:
-- 3
+- 1
 epochs: 20
 batch_size: 128
 lr: 0.0001
@@ -18,15 +18,16 @@ weight_decay: 0.0
 fa_threshold: 0.1
 alpha: 0.1
 pretrained_model_path: runs/_base_models/officehome_M8_k2_seed42/checkpoints/learn_best.pt
-output_dir: runs/main_table_officehome_seed42/scrub_officehome_domain/checkpoints
-study_name: SCRUB__OfficeHome__domain__scrub_officehome_domain__seed42
-wandb_group: MainTable_OfficeHome_seed42
+output_dir: runs/main_table_officehome_seed42_c10d1/scrub_officehome_domain/checkpoints
+study_name: SCRUB__OfficeHome__domain__scrub_officehome_domain__seed42_d1
+wandb_group: MainTable_OfficeHome_seed42_c10d1
 wandb_tags:
 - main_table
 - OfficeHome
 - domain
 - SCRUB
 - seed42
+- d1
 baseline_name: SCRUB
 scenario: domain
 config_name: scrub_officehome_domain

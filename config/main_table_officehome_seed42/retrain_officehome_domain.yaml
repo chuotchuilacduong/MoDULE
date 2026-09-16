@@ -18,8 +18,8 @@ lambda_div: 0.5
 ema_alpha: 0.9
 unlearn_setting: domain
 forget_domains:
-- 3
-output_root: runs/main_table_officehome_seed42/retrain_officehome_domain
+- 1
+output_root: runs/main_table_officehome_seed42_c10d1/retrain_officehome_domain
 k_u: 4
 baseline_name: Retraining
 dataset_name: OfficeHome
@@ -27,12 +27,13 @@ scenario: domain
 config_name: retrain_officehome_domain
 config_path: config/main_table_officehome_seed42/retrain_officehome_domain.yaml
 learning_rate: 0.0005
-wandb_group: MainTable_OfficeHome_seed42
+wandb_group: MainTable_OfficeHome_seed42_c10d1
 wandb_tags:
 - main_table
 - OfficeHome
 - domain
 - Retraining
 - seed42
+- d1
 learn_eval_every: 1
 wandb_mode: online

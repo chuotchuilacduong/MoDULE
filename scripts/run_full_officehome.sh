@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# Main Table — OfficeHome, seed 42, class (forget class 0 = Alarm_Clock) + domain (forget domain 3 = Real World).
+# Main Table — OfficeHome, seed 42.
+#   class : forget 10 lớp [0..9] (Alarm_Clock..Candles, ~2.400 ảnh = 15% dữ liệu, ~19 batch/epoch -> ~380 bước
+#           unlearn trong 20 epoch, ngang PACS dog 17% / 220 bước). Với 1 lớp (190 ảnh, 2 batch/epoch = 40 bước)
+#           KHÔNG method nào quên được (FA 97-100%) -- run 16/09 sáng vô nghĩa.
+#   domain: forget domain 1 = Clipart (4.365 ảnh, 28%), thay cho Real World (domain 3) -- Real World là domain
+#           ảnh thật, gần ImageNet/Product nhất, tương đương "photo" của PACS chứ không phải "sketch".
+#   Base ModULE / SPM không phụ thuộc forget target (learn với unlearn_setting=random) -> giữ nguyên, không train lại.
 # Chạy tuần tự trong MỘT tiến trình (không pgrep -f để chờ script khác — đã gây deadlock trên PACS):
 #   0. tải OfficeHome từ HF (flwrlabs/office-home) nếu chưa có
 #   1. base ModULE M=8/k=2 (learn.py)         -> runs/_base_models/officehome_M8_k2_seed42/checkpoints/learn_best.pt
@@ -17,7 +23,7 @@ FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
 
 CFG=config/main_table_officehome_seed42
 DATA=dataset/data_folder/officehome
-R=results/main_table_officehome_seed42; LOG=$R/logs; DONE=$R/done; mkdir -p "$LOG" "$DONE"
+R=results/main_table_officehome_seed42_c10d1; LOG=$R/logs; DONE=$R/done; mkdir -p "$LOG" "$DONE"
 BASE_DIR=runs/_base_models/officehome_M8_k2_seed42
 BEST=$BASE_DIR/checkpoints/learn_best.pt
 SPM_CKPT=checkpoint/$CFG/officehome_spm/officehome_spm.pt
@@ -49,11 +55,13 @@ fi
 # (đúng bố cục mà run_moe_pipeline.py --stage unlearn mong đợi: learn.yaml nằm hai cấp trên .pt).
 mkdir -p "$BASE_DIR/checkpoints"
 sed "s#^output_dir:.*#output_dir: $BASE_DIR/checkpoints#" "$CFG/base_officehome_M8_k2.yaml" > "$BASE_DIR/learn.yaml"
-step 01_base_module_M8_k2 "$PY" -m learn --config "$BASE_DIR/learn.yaml"
+if [ -f "$BEST" ]; then echo "[skip] base ModULE đã có: $BEST"; else
+  step 01_base_module_M8_k2 "$PY" -m learn --config "$BASE_DIR/learn.yaml"; fi
 [ -f "$BEST" ] || { echo "[!] thiếu $BEST — dừng"; exit 1; }
 
 # ---------- 2. base SPM ----------
-step 02_base_spm_resnet18 "$PY" -m learn --config "$CFG/officehome_spm.yaml"
+if [ -f "$SPM_CKPT" ]; then echo "[skip] base SPM đã có: $SPM_CKPT"; else
+  step 02_base_spm_resnet18 "$PY" -m learn --config "$CFG/officehome_spm.yaml"; fi
 [ -f "$SPM_CKPT" ] || echo "[!] thiếu $SPM_CKPT — SPM unlearn sẽ fail, các baseline khác vẫn chạy"
 
 # ---------- 3. pipeline baselines ----------
