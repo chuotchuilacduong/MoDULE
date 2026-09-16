@@ -212,7 +212,7 @@ def main():
             if learn_signature not in learned_checkpoints:
                 if args.force or not base_checkpoint.exists():
                     run_command(
-                        [sys.executable, "learn.py", "--config", str(base_config_path)],
+                        [sys.executable, "-m", "learn", "--config", str(base_config_path)],
                         args.dry_run,
                     )
                 else:
@@ -256,7 +256,7 @@ def main():
         )
         if args.force or not final_checkpoint.exists():
             run_command(
-                [sys.executable, "unlearn.py", "--config", str(unlearn_config_path)],
+                [sys.executable, "-m", "unlearn", "--config", str(unlearn_config_path)],
                 args.dry_run,
             )
         else:

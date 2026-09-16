@@ -40,7 +40,7 @@ if [ -d "$DATA" ] && [ "$(find "$DATA" -name '*.jpg' | wc -l)" -ge 15000 ]; then
   echo "[skip] OfficeHome đã có: $(find "$DATA" -name '*.jpg' | wc -l) ảnh"
 else
   rm -rf "$DATA"
-  step 00_download_officehome "$PY" dataset/downloader/officehome.py || exit 1
+  step 00_download_officehome "$PY" -m dataset.downloader.officehome || exit 1
   echo "[*] domains: $(ls "$DATA" | tr '\n' ' ')  | classes: $(ls "$DATA/$(ls "$DATA" | head -1)" | wc -l)"
 fi
 
@@ -49,17 +49,17 @@ fi
 # (đúng bố cục mà run_moe_pipeline.py --stage unlearn mong đợi: learn.yaml nằm hai cấp trên .pt).
 mkdir -p "$BASE_DIR/checkpoints"
 sed "s#^output_dir:.*#output_dir: $BASE_DIR/checkpoints#" "$CFG/base_officehome_M8_k2.yaml" > "$BASE_DIR/learn.yaml"
-step 01_base_module_M8_k2 "$PY" learn.py --config "$BASE_DIR/learn.yaml"
+step 01_base_module_M8_k2 "$PY" -m learn --config "$BASE_DIR/learn.yaml"
 [ -f "$BEST" ] || { echo "[!] thiếu $BEST — dừng"; exit 1; }
 
 # ---------- 2. base SPM ----------
-step 02_base_spm_resnet18 "$PY" learn.py --config "$CFG/officehome_spm.yaml"
+step 02_base_spm_resnet18 "$PY" -m learn --config "$CFG/officehome_spm.yaml"
 [ -f "$SPM_CKPT" ] || echo "[!] thiếu $SPM_CKPT — SPM unlearn sẽ fail, các baseline khác vẫn chạy"
 
 # ---------- 3. pipeline baselines ----------
 for s in class domain; do
   for b in grip seuf repselect salun ssd; do
-    step "03_${b}__${s}" "$PY" config/experiments/run_moe_pipeline.py \
+    step "03_${b}__${s}" "$PY" -m config.experiments.run_moe_pipeline \
       --config "$CFG/officehome_${b}_${s}.yaml" --stage unlearn --checkpoint "$BEST"
   done
 done
@@ -67,14 +67,14 @@ done
 # ---------- 4. unlearn.py baselines ----------
 for s in class domain; do
   for stem in ft ga random_label scrub sg_unlearning boundary_expanding boundary_shrink l1_sparse module; do
-    step "04_${stem}__${s}" "$PY" unlearn.py --config "$CFG/${stem}_officehome_${s}.yaml"
+    step "04_${stem}__${s}" "$PY" -m unlearn --config "$CFG/${stem}_officehome_${s}.yaml"
   done
-  step "04_spm__${s}" "$PY" unlearn.py --config "$CFG/officehome_spm_unlearn_${s}.yaml"
+  step "04_spm__${s}" "$PY" -m unlearn --config "$CFG/officehome_spm_unlearn_${s}.yaml"
 done
 
 # ---------- 5. retraining ----------
 for s in class domain; do
-  step "05_retrain__${s}" "$PY" retrain_baseline.py --config "$CFG/retrain_officehome_${s}.yaml"
+  step "05_retrain__${s}" "$PY" -m retrain_baseline --config "$CFG/retrain_officehome_${s}.yaml"
 done
 
 echo ""; echo "### $(date '+%m-%d %T') OFFICEHOME XONG ###"
