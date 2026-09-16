@@ -94,6 +94,7 @@ def build_model(cfg, checkpoint_path, device):
         expert_depth=cfg['expert_depth'],
         expert_hidden_ratio=cfg['expert_hidden_ratio'],
         gate_k=cfg['gate_k'],
+        gate_norm=cfg.get('gate_norm', 'softmax'),
         device=device,
     )
     state_dict = torch.load(checkpoint_path, map_location=device)

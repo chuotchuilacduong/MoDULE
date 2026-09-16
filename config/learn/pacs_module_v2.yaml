@@ -1,0 +1,53 @@
+# ModULE "v2": các sửa đổi theo docs/review_online_spec_and_route_separation.md, bật TẤT CẢ
+# các công tắc paper-faithful cùng lúc. So sánh với base_balfix_M8_k2_100ep.yaml (chỉ vá L_bal).
+#
+#   gate_norm: sum          -- Eq. (29): gate = topk_vals / sum, thay cho softmax(topk_vals).
+#                              ĐỔI FORWARD PASS: checkpoint cũ (softmax) không so sánh được.
+#   sparse_target: pi_all   -- Eq. (3)/(32): L_sp = H(pi)/log M trên softmax đầy đủ.
+#                              Vì đã chuẩn hoá về [0,1], lambda_sparse 0.5 cũ tương đương ~0.5*log M
+#                              theo thang mới; 0.1 là điểm xuất phát, chưa tune.
+#   diversity_objective: cka + probe_size: 256  -- Eq. (37)-(40), centered linear CKA trên probe.
+#   lambda_sep: 0.5, sep_axis: domain            -- L_sep = -I(G;E) (Mod-Squad MI) theo domain.
+#                              H(E) trong MI đã là cân bằng tải, nên lambda_balance đặt 0.
+#
+# Khuyến nghị chạy 2 giai đoạn để quy công: (1) lambda_sep: 0.0 (chỉ sửa lỗi), (2) sweep
+# lambda_sep in [0.1, 0.5, 1.0]. Theo dõi online_spec/overall/{mean_domain_mi_norm,
+# domain_overlap, domain_topk_jaccard, total_dead_experts} và FEM/ARR/RFO sau khi train.
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+unlearn_setting: random
+forget_ratio: 0.1
+model_name: module_small_patch16_224
+pretrained: true
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+gate_norm: sum
+epochs: 100
+batch_size: 128
+lr: 0.0005
+weight_decay: 0.05
+grad_clip_norm: 1.0
+lr_schedule: cosine
+warmup_epochs: 2
+sparse_target: pi_all
+lambda_sparse: 0.1
+balance_estimator: minibatch
+lambda_balance: 0.0
+diversity_objective: cka
+probe_size: 256
+lambda_div: 0.5
+lambda_sep: 0.5
+sep_axis: domain
+sep_use_gated: true
+sep_ema_alpha: 0.0
+online_spec_log_every: 1
+domain_mass_log_every: 5
+router_match_log_every: 10
+ema_alpha: 0.9
+wandb_mode: online
+wandb_group: ModULE_v2
+output_dir: runs/_base_models/pacs_module_v2/checkpoints

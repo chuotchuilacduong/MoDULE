@@ -34,6 +34,14 @@ class DeepMoELayer(nn.Module):
         self.gate_k = gate_k
         self.expert_depth = expert_depth
         self.noise_std = noise_std
+        # Chuẩn hoá gate trong top-k:
+        #   "softmax": F.softmax(topk_vals) -- hành vi gốc của repo (softmax LẶP LẠI lên xác
+        #              suất, nên gate bị ép về đều: top-2 [0.6, 0.2] -> [0.60, 0.40]; entropy gate
+        #              kẹt ở 84-100% của log k). Mọi checkpoint/kết quả hiện có dùng cách này.
+        #   "sum":     topk_vals / topk_vals.sum() -- paper Eq. (29). Đổi forward pass, nên
+        #              checkpoint train bằng "softmax" KHÔNG so sánh được với "sum".
+        # Đặt qua ModuleArchitecture(gate_norm=...) / key config `gate_norm`.
+        self.gate_norm = "softmax"
         
         self.experts = nn.ModuleList([DeepExpert(model_dim, hidden_size, expert_depth) for _ in range(num_experts)])
         self.router = nn.Linear(model_dim, num_experts, bias=False)
@@ -46,6 +54,9 @@ class DeepMoELayer(nn.Module):
         # [N, k] và chiều thứ hai là THỨ HẠNG, không phải expert nào.
         self.last_gate_mass = None
         self.last_h = None
+        # Đầu vào expert đã detach (sg(U_p) của paper Eq. 37): dùng cho probe CKA khi muốn
+        # gradient của L_div KHÔNG chảy ngược vào backbone qua phép đo similarity.
+        self.last_v = None
         
         self.allowed_experts = None
 
@@ -90,15 +101,19 @@ class DeepMoELayer(nn.Module):
 
         topk_vals, topk_indices = probs.topk(active_k, dim=-1)
         
-        # local softmax among chosen experts.
-        gate_weights = F.softmax(topk_vals, dim=-1)
+        # chuẩn hoá gate trong tập top-k (xem chú thích `gate_norm` ở __init__).
+        if self.gate_norm == "sum":
+            gate_weights = topk_vals / topk_vals.sum(dim=-1, keepdim=True).clamp(min=1e-8)
+        else:
+            gate_weights = F.softmax(topk_vals, dim=-1)
         
         E_raw = torch.zeros(x_flat.size(0), self.num_experts, D, device=x.device, dtype=x.dtype)
         for expert_idx, expert in enumerate(self.experts):
             E_raw[:, expert_idx, :] = expert(x_flat)
         
         # all expert representation
-        self.last_h = E_raw 
+        self.last_h = E_raw
+        self.last_v = x_flat.detach()
 
         out = torch.zeros_like(x_flat)
         for i in range(active_k):
@@ -297,9 +312,11 @@ class ModuleArchitecture(BaseArchitecture):
 
     def __init__(self, model_name='module_small_patch16_224', num_classes=7, pretrained=True, device="cuda",
                  moe_layers=None, num_experts=6, expert_depth=2, expert_hidden_ratio=2.0, gate_k=1,
-                 mlp_ratio=4.0):
+                 mlp_ratio=4.0, gate_norm="softmax"):
         if model_name not in self.SUPPORTED_MODELS:
             raise ValueError(f"Model '{model_name}' is not supported.")
+        if gate_norm not in ("softmax", "sum"):
+            raise ValueError(f"gate_norm phải là 'softmax' hoặc 'sum' (nhận {gate_norm!r})")
 
         deit_model_name = model_name.replace('module_', 'deit_')
         
@@ -317,6 +334,10 @@ class ModuleArchitecture(BaseArchitecture):
         self.model_name = model_name
         self.embed_dim = embed_dim
         self.num_classes = num_classes
+        self.gate_norm = gate_norm
+        for m in self.modules():
+            if isinstance(m, DeepMoELayer):
+                m.gate_norm = gate_norm
 
         self._print_param_counts()
 

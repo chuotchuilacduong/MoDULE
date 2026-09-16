@@ -9,6 +9,8 @@ from approx_algo.gradient_ascent import Gradient_Ascent
 import inspect
 
 from metric.fa import forget_acc
+from metric.online_specialization import OnlineSpecTracker
+from metric.route_separation import loss_route_separation
 from module_diagnostics import (
     extract_router_diagnostics,
     print_router_diagnostics,
@@ -51,6 +53,25 @@ class Module(Gradient_Ascent):
             balance_estimator="minibatch",
             # S13 / Table 16: "none" | "cosine" | "orthogonality" | "cka" | "output_decorrelation"
             diversity_objective="output_decorrelation",
+            # L_sp tính trên tensor nào (docs/review_online_spec_and_route_separation.md, mục 2):
+            #   "gate"   -- entropy của gate top-k `last_pi` [N,k] (hành vi gốc; trần log k,
+            #               bị nén bởi double-softmax nếu gate_norm="softmax")
+            #   "pi_all" -- H(pi)/log M trên softmax đầy đủ `last_pi_all` [N,M], paper Eq. (3)/(32)
+            sparse_target="gate",
+            # Probe cho CKA (Eq. 37): số mẫu token lấy ngẫu nhiên mỗi batch để tính L_div.
+            # 0 = dùng toàn bộ token (hành vi gốc). Chỉ có tác dụng với diversity_objective="cka".
+            probe_size=0,
+            # L_sep = -I(G;E): tách tuyến đường theo nhóm (metric/route_separation.py).
+            #   lambda_sep=0 -> tắt hẳn (mặc định, không đổi hành vi cũ)
+            #   sep_axis: "domain" | "class"  -- nhóm G dùng để tính MI
+            #   sep_use_gated: True -> gated mass (Eq. 29), False -> softmax thô (Mod-Squad)
+            #   sep_ema_alpha: >0 để làm mượt W qua các batch khi mỗi batch có ít mẫu/nhóm
+            lambda_sep=0.0,
+            sep_axis="domain",
+            sep_use_gated=True,
+            sep_ema_alpha=0.0,
+            # online_spec/* (metric/online_specialization.py): 0 = tắt, n = log mỗi n epoch
+            online_spec_log_every=1,
             # Table 15 (muc H): regularizer giu tinh modular TRONG pha unlearn.
             #   "none"             -- tat han
             #   "option2_cross"    -- decorrelate selected vs frozen tren minibatch HIEN TAI
@@ -129,6 +150,17 @@ class Module(Gradient_Ascent):
         if diversity_objective not in ("none","cosine","orthogonality","cka","output_decorrelation"):
             raise ValueError(f"diversity_objective không hợp lệ: {diversity_objective!r}")
         self.diversity_objective = diversity_objective
+        if sparse_target not in ("gate", "pi_all"):
+            raise ValueError(f"sparse_target phải là 'gate' hoặc 'pi_all' (nhận {sparse_target!r})")
+        self.sparse_target = sparse_target
+        self.probe_size = int(probe_size)
+        if sep_axis not in ("domain", "class"):
+            raise ValueError(f"sep_axis phải là 'domain' hoặc 'class' (nhận {sep_axis!r})")
+        self.lambda_sep = float(lambda_sep)
+        self.sep_axis = sep_axis
+        self.sep_use_gated = bool(sep_use_gated)
+        self.sep_ema_alpha = float(sep_ema_alpha)
+        self.online_spec_log_every = int(online_spec_log_every)
         if unlearn_modularity_reg not in ("none","option1_geometry","option2_cross","option3_retained"):
             raise ValueError(f"unlearn_modularity_reg khong hop le: {unlearn_modularity_reg!r}")
         self.unlearn_modularity_reg = unlearn_modularity_reg
@@ -249,7 +281,12 @@ class Module(Gradient_Ascent):
         return cmass, cnt_c, dmass, cnt_d
 
     def _loss_sparse(self, pi):
+        """sparse_target="gate": entropy thô của gate top-k (gốc). sparse_target="pi_all":
+        H(pi)/log M trên softmax đầy đủ, paper Eq. (3)/(32), nằm trong [0, 1]."""
         entropy = -(pi * (pi + 1e-8).log()).sum(dim=-1)
+        if getattr(self, "sparse_target", "gate") == "pi_all":
+            M = pi.size(-1)
+            return entropy.mean() / math.log(M) if M > 1 else entropy.mean()
         return entropy.mean()
 
     def _loss_balance(self, gate_mass, module_name, use_ema, ema_states, ema_alpha):
@@ -285,6 +322,14 @@ class Module(Gradient_Ascent):
     # cũ được giữ nguyên hành vi dưới tên "output_decorrelation" (mọi kết quả
     # đã chạy trước đây đều thuộc mục tiêu này), và "cka" là bản cài đúng Eq. 39.
     # ------------------------------------------------------------------ #
+    def _probe_subsample(self, h_stack):
+        """Probe B_p token ngẫu nhiên cho L_div (paper Eq. 37). probe_size=0 -> giữ nguyên."""
+        n = getattr(self, "probe_size", 0)
+        if n <= 0 or h_stack is None or h_stack.size(0) <= n:
+            return h_stack
+        idx = torch.randperm(h_stack.size(0), device=h_stack.device)[:n]
+        return h_stack[idx]
+
     def _loss_diversity(self, h_stack, eps=1e-6):
         obj = getattr(self, "diversity_objective", "output_decorrelation")
         if obj == "none":
@@ -525,6 +570,10 @@ class Module(Gradient_Ascent):
         print(f"[*] balance estimator: {self.balance_estimator}"
               + (" (L_bal bị tắt hoàn toàn)" if self.balance_estimator == "none" else ""))
         ema_states = {}
+        sep_ema_states = {}
+        print(f"[*] sparse target: {self.sparse_target} | diversity: {self.diversity_objective}"
+              f" (probe_size={self.probe_size}) | lambda_sep={self.lambda_sep} axis={self.sep_axis}"
+              f" gated={self.sep_use_gated} ema={self.sep_ema_alpha} | online_spec every {self.online_spec_log_every}")
         total_train_time = 0.0
         total_train_steps = 0
         best_loss = float('inf')
@@ -558,6 +607,20 @@ class Module(Gradient_Ascent):
             epoch_start_time = time.time()
 
             running_total, running_ce, running_sp, running_bal, running_div = 0.0, 0.0, 0.0, 0.0, 0.0
+            running_sep = 0.0
+
+            # online_spec/*: thống kê chuyên biệt hoá từng epoch, tái dùng pi đã cache trong
+            # forward pass (không tốn inference thêm). Tạo MỚI mỗi epoch -- tracker không có reset().
+            do_spec_log = self.online_spec_log_every > 0 and (
+                    (epoch + 1) % self.online_spec_log_every == 0 or epoch == self.num_epoch - 1)
+            spec_tracker = None
+            if do_spec_log:
+                spec_tracker = OnlineSpecTracker(
+                    self.num_experts, self.gate_k,
+                    num_domains=num_domains,
+                    num_classes=len(self.class_names) if self.class_names else 0,
+                    dead_expert_threshold=self.dead_expert_threshold,
+                )
 
             # domain-mass tracking: only active every `domain_mass_log_every` epochs (and the
             # last epoch), reusing the pi already computed by the forward pass -- no extra
@@ -571,7 +634,8 @@ class Module(Gradient_Ascent):
             for micro_step, batch in enumerate(self.train_loader):
                 images = batch[0].to(self.device)
                 labels = batch[1].to(self.device)
-                domains = batch[2].to(self.device).long() if (do_domain_log and len(batch) > 2) else None
+                batch_domains = batch[2].to(self.device).long() if len(batch) > 2 else None
+                domains = batch_domains if do_domain_log else None
                 labels_for_mass = labels if do_domain_log else None
 
                 # gradient accumulation: zero only at the start of an accumulation
@@ -581,13 +645,14 @@ class Module(Gradient_Ascent):
                     self.optimizer.zero_grad()
                 logits, _ = self.model.forward_with_grad(images)
 
-                all_pi, all_h, all_gate_mass, moe_names = [], [], [], []
+                all_pi, all_h, all_gate_mass, moe_names, moe_modules = [], [], [], [], []
                 for name, module in self.model.featurizer.model.named_modules():
                     if module.__class__.__name__ == 'DeepMoELayer':
-                        all_pi.append(module.last_pi)
-                        all_h.append(module.last_h)
+                        all_pi.append(module.last_pi_all if self.sparse_target == "pi_all" else module.last_pi)
+                        all_h.append(self._probe_subsample(module.last_h))
                         all_gate_mass.append(module.last_gate_mass)
                         moe_names.append(name)
+                        moe_modules.append((name, module))
 
                         if domains is not None:
                             pi_all = module.last_pi_all.detach()  # [B*S, num_experts]
@@ -629,8 +694,22 @@ class Module(Gradient_Ascent):
                     bal_loss = torch.tensor(0.0, device=self.device)
                     div_loss = torch.tensor(0.0, device=self.device)
 
+                sep_loss = torch.tensor(0.0, device=self.device)
+                if self.lambda_sep > 0 and len(moe_modules) > 0:
+                    if self.sep_axis == "domain":
+                        sep_groups, n_groups = batch_domains, num_domains
+                    else:
+                        sep_groups = labels
+                        n_groups = len(self.class_names) if self.class_names else int(self.model.num_classes)
+                    if sep_groups is not None and n_groups >= 2:
+                        _sep = loss_route_separation(
+                            moe_modules, sep_groups, n_groups, use_gated=self.sep_use_gated,
+                            ema_states=sep_ema_states, ema_alpha=self.sep_ema_alpha)
+                        if _sep is not None:
+                            sep_loss = _sep
+
                 t_loss = ce_loss + (self.lambda_sparse * sp_loss) + (self.lambda_balance * bal_loss) + (
-                            self.lambda_div * div_loss)
+                            self.lambda_div * div_loss) + (self.lambda_sep * sep_loss)
 
                 # scale so the accumulated gradient equals the mean over the full
                 # effective batch, not its sum. exact for this model (LayerNorm
@@ -650,11 +729,15 @@ class Module(Gradient_Ascent):
                     if scheduler is not None:
                         scheduler.step()
 
+                if spec_tracker is not None:
+                    spec_tracker.update(self.model, labels, batch_domains)
+
                 running_total += t_loss.item()
                 running_ce += ce_loss.item()
                 running_sp += sp_loss.item()
                 running_bal += bal_loss.item()
                 running_div += div_loss.item()
+                running_sep += sep_loss.item()
 
                 # count optimizer steps so step totals stay comparable across runs
                 # with different grad_accum_steps.
@@ -668,7 +751,7 @@ class Module(Gradient_Ascent):
             avg_loss = running_total / num_batches
 
             print(f"epoch [{epoch + 1}/{self.num_epoch}] | "
-                  f"total_loss: {avg_loss:.4f} (ce: {running_ce / num_batches:.4f}, sp: {running_sp / num_batches:.4f}, bal: {running_bal / num_batches:.4f}, div: {running_div / num_batches:.4f}) | "
+                  f"total_loss: {avg_loss:.4f} (ce: {running_ce / num_batches:.4f}, sp: {running_sp / num_batches:.4f}, bal: {running_bal / num_batches:.4f}, div: {running_div / num_batches:.4f}, sep: {running_sep / num_batches:.4f}) | "
                   f"steps in epoch: {num_batches} | total_steps: {total_train_steps} | time: {epoch_train_time:.2f}s")
 
             wandb.log({
@@ -681,8 +764,13 @@ class Module(Gradient_Ascent):
                 "sp_loss_weighted": self.lambda_sparse * running_sp / num_batches,
                 "bal_loss_weighted": self.lambda_balance * running_bal / num_batches,
                 "div_loss_weighted": self.lambda_div * running_div / num_batches,
+                "sep_loss": running_sep / num_batches,
+                "sep_loss_weighted": self.lambda_sep * running_sep / num_batches,
                 "train_steps_accum": total_train_steps
             })
+
+            if spec_tracker is not None:
+                spec_tracker.log(epoch + 1)
 
             if do_domain_log and domain_mass_sum:
                 # keep the dashboard readable: one small scalar per layer for the

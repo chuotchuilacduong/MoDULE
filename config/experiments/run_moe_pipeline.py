@@ -125,7 +125,7 @@ def validate(learn, unlearn):
         "dataset", "data_dir", "unlearn_setting", "forget_ratio",
         "forget_classes", "forget_domains", "model_name", "moe_layers",
         "num_experts", "gate_k", "expert_depth", "expert_hidden_ratio", "seed",
-        "mlp_ratio",
+        "mlp_ratio", "gate_norm",
     )
     for key in architecture_keys:
         if key in learn:

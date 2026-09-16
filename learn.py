@@ -136,9 +136,15 @@ def main():
         f"_ne{args.num_experts}_gk{args.gate_k}_ed{args.expert_depth}_ehr{args.expert_hidden_ratio}"
         f"_{unlearn_setting}_fr{args.forget_ratio}_seed{args.seed}"
     )
+    # `study_name` / `wandb_group` / `wandb_tags` / `wandb_mode` trong config được tôn trọng
+    # (trước đây bị bỏ qua: mọi run cùng kiến trúc trùng tên, sweep loss không phân biệt được).
+    run_name = getattr(args, 'study_name', None) or run_name
     wandb.init(
         project="MoE",
         name=run_name,
+        group=getattr(args, 'wandb_group', None),
+        tags=getattr(args, 'wandb_tags', None),
+        mode=getattr(args, 'wandb_mode', None) or None,
         config=yaml_config,
         settings=_wandb_settings()
     )
@@ -297,6 +303,7 @@ def main():
             expert_depth=args.expert_depth,
             expert_hidden_ratio=args.expert_hidden_ratio,
             gate_k=args.gate_k,
+            gate_norm=getattr(args, 'gate_norm', 'softmax'),
             mlp_ratio=getattr(args, 'mlp_ratio', 4.0),
             device=device
         )
@@ -355,6 +362,13 @@ def main():
             domain_mass_log_every=getattr(args, 'domain_mass_log_every', 10),
             balance_estimator=getattr(args, 'balance_estimator', 'minibatch'),
             diversity_objective=getattr(args, 'diversity_objective', 'output_decorrelation'),
+            sparse_target=getattr(args, 'sparse_target', 'gate'),
+            probe_size=getattr(args, 'probe_size', 0),
+            lambda_sep=getattr(args, 'lambda_sep', 0.0),
+            sep_axis=getattr(args, 'sep_axis', 'domain'),
+            sep_use_gated=getattr(args, 'sep_use_gated', True),
+            sep_ema_alpha=getattr(args, 'sep_ema_alpha', 0.0),
+            online_spec_log_every=getattr(args, 'online_spec_log_every', 1),
             dead_expert_threshold=getattr(args, 'dead_expert_threshold', 0.01),
             run_eq7_diagnostics=getattr(args, 'run_eq7_diagnostics', False),
             per_domain_train_loaders_eval=per_domain_train_loaders_eval,

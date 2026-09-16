@@ -368,6 +368,7 @@ def main():
             expert_depth=args.expert_depth,
             expert_hidden_ratio=args.expert_hidden_ratio,
             gate_k=args.gate_k,
+            gate_norm=getattr(args, 'gate_norm', 'softmax'),
             mlp_ratio=getattr(args, 'mlp_ratio', 4.0),
             device=device
         )

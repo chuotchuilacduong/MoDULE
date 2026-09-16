@@ -197,6 +197,7 @@ def main():
         expert_depth=args.expert_depth,
         expert_hidden_ratio=args.expert_hidden_ratio,
         gate_k=args.gate_k,
+            gate_norm=getattr(args, 'gate_norm', 'softmax'),
         device=device,
     )
     model._set_grad_mode("learning")
