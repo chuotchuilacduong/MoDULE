@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Main table cho dataset KHÔNG có domain (chỉ class unlearning): cifar100 | tiny_imagenet.
-#   cifar100      : quên 10/100 lớp (c10, 10 % dữ liệu)           ~5.5 h base + ~2.5 h unlearn + ~5.5 h retrain
+#   cifar100      : quên 10/100 lớp (c10, 10 % dữ liệu)           ~2.8 h base + ~3 h unlearn + ~2.8 h retrain (50 epoch)
 #   tiny_imagenet : quên 20/200 lớp (c20, 10 %)                   ~2x cifar100 (110k ảnh)
 # Cấu trúc y hệt run_full_officehome.sh (marker skip, base không train lại nếu đã có).
 #   PY=<python có torch> nohup bash scripts/run_full_dataset.sh cifar100 > cifar100.nohup.log 2>&1 &
