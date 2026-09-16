@@ -37,3 +37,4 @@ wandb_tags:
 wandb_mode: online
 output_dir: runs/_base_models/septest_lsep0.0_class_sum/checkpoints
 gate_norm: sum
+learn_eval_every: 1

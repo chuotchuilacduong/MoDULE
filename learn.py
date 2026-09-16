@@ -383,6 +383,8 @@ def main():
             warmup_epochs=getattr(args, 'warmup_epochs', 1),
         )
         ema_alpha = getattr(args, 'ema_alpha', 0.9)
+        # đánh giá FA/RA/TA/MIA mỗi N epoch (0 = chỉ cuối cùng, mặc định)
+        algo_wrapper.learn_eval_every = int(getattr(args, 'learn_eval_every', 0))
         algo_wrapper.learn(ckpt_path=ckpt_prefix, ema_alpha=ema_alpha)
     elif 'erm_ktp' in args.model_name:
         algo_wrapper = ERM_KTP(

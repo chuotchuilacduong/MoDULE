@@ -38,3 +38,4 @@ wandb_tags:
 wandb_mode: online
 output_dir: runs/_base_models/septest_lsep0.5_layerwise_softmax/checkpoints
 gate_norm: softmax
+learn_eval_every: 1
