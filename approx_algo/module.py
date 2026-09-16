@@ -63,7 +63,9 @@ class Module(Gradient_Ascent):
             probe_size=0,
             # L_sep = -I(G;E): tách tuyến đường theo nhóm (metric/route_separation.py).
             #   lambda_sep=0 -> tắt hẳn (mặc định, không đổi hành vi cũ)
-            #   sep_axis: "domain" | "class"  -- nhóm G dùng để tính MI
+            #   sep_axis: "domain" | "class" | "both" | list theo từng MoE layer, vd ["domain","class"]
+            #             "both" = I(D;E) + I(C;E) trên MỌI layer (cạnh tranh cùng M expert);
+            #             list   = mỗi layer một trục (layer 10 domain, layer 11 class) -- không cạnh tranh
             #   sep_use_gated: True -> gated mass (Eq. 29), False -> softmax thô (Mod-Squad)
             #   sep_ema_alpha: >0 để làm mượt W qua các batch khi mỗi batch có ít mẫu/nhóm
             lambda_sep=0.0,
@@ -154,8 +156,13 @@ class Module(Gradient_Ascent):
             raise ValueError(f"sparse_target phải là 'gate' hoặc 'pi_all' (nhận {sparse_target!r})")
         self.sparse_target = sparse_target
         self.probe_size = int(probe_size)
-        if sep_axis not in ("domain", "class"):
-            raise ValueError(f"sep_axis phải là 'domain' hoặc 'class' (nhận {sep_axis!r})")
+        if isinstance(sep_axis, (list, tuple)):
+            bad = [a for a in sep_axis if a not in ("domain", "class", "both", "none")]
+            if bad:
+                raise ValueError(f"sep_axis theo layer chỉ nhận domain/class/both/none (nhận {bad})")
+            sep_axis = list(sep_axis)
+        elif sep_axis not in ("domain", "class", "both"):
+            raise ValueError(f"sep_axis phải là 'domain', 'class', 'both' hoặc list theo layer (nhận {sep_axis!r})")
         self.lambda_sep = float(lambda_sep)
         self.sep_axis = sep_axis
         self.sep_use_gated = bool(sep_use_gated)
@@ -696,17 +703,29 @@ class Module(Gradient_Ascent):
 
                 sep_loss = torch.tensor(0.0, device=self.device)
                 if self.lambda_sep > 0 and len(moe_modules) > 0:
-                    if self.sep_axis == "domain":
-                        sep_groups, n_groups = batch_domains, num_domains
+                    n_cls = len(self.class_names) if self.class_names else int(self.model.num_classes)
+                    group_of = {"domain": (batch_domains, num_domains), "class": (labels, n_cls)}
+                    # trục theo layer: chuỗi -> áp cho mọi layer; list -> theo thứ tự MoE layer
+                    if isinstance(self.sep_axis, list):
+                        axes = [self.sep_axis[i] if i < len(self.sep_axis) else "none"
+                                for i in range(len(moe_modules))]
                     else:
-                        sep_groups = labels
-                        n_groups = len(self.class_names) if self.class_names else int(self.model.num_classes)
-                    if sep_groups is not None and n_groups >= 2:
-                        _sep = loss_route_separation(
-                            moe_modules, sep_groups, n_groups, use_gated=self.sep_use_gated,
-                            ema_states=sep_ema_states, ema_alpha=self.sep_ema_alpha)
-                        if _sep is not None:
-                            sep_loss = _sep
+                        axes = [self.sep_axis] * len(moe_modules)
+                    terms = []
+                    for (name, module), ax in zip(moe_modules, axes):
+                        for a in (("domain", "class") if ax == "both" else (ax,)):
+                            if a == "none":
+                                continue
+                            g, n_g = group_of[a]
+                            if g is None or n_g < 2:
+                                continue
+                            _sep = loss_route_separation(
+                                [(name, module)], g, n_g, use_gated=self.sep_use_gated,
+                                ema_states=sep_ema_states.setdefault(a, {}), ema_alpha=self.sep_ema_alpha)
+                            if _sep is not None:
+                                terms.append(_sep)
+                    if terms:
+                        sep_loss = sum(terms) / len(terms)
 
                 t_loss = ce_loss + (self.lambda_sparse * sp_loss) + (self.lambda_balance * bal_loss) + (
                             self.lambda_div * div_loss) + (self.lambda_sep * sep_loss)

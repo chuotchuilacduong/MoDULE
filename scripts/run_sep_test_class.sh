@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # L_sep theo trục CLASS trên PACS (đợt 2). 4 run x 30 epoch (~23 phút/run trên server):
+#   Đợt 3 (cả hai trục):  RUNS="sep_on_both sep_on_layerwise sep_on_both_sumgate" bash scripts/run_sep_test_class.sh
 #   sep_on_class          lambda_sep=0.5, axis=class, gate softmax (mặc định)   -> so với sep_off (đợt 1)
 #   sep_on_class_pi       như trên nhưng MI tính trên softmax pi (sep_use_gated=false, không bị cap 0.731)
 #   sep_off_sumgate       lambda_sep=0,   gate_norm=sum  (đối chứng cho dòng dưới; đổi forward pass)
@@ -12,7 +13,7 @@ export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} PYTORCH_CUDA_ALLOC_CONF=e
 R=results/sep_test; LOG=$R/logs; DONE=$R/done; mkdir -p "$LOG" "$DONE"
 [ -d dataset/data_folder/pacs ] || "$PY" -m dataset.downloader.pacs || exit 1
 
-for name in sep_on_class sep_on_class_pi sep_off_sumgate sep_on_class_sumgate; do
+for name in ${RUNS:-sep_on_class sep_on_class_pi sep_off_sumgate sep_on_class_sumgate}; do
   if [ -f "$DONE/$name" ]; then echo "[skip] $name"; continue; fi
   echo ""; echo "######## $(date '+%m-%d %T')  $name"
   "$PY" -m learn --config "config/learn/sep_test/$name.yaml" > "$LOG/$name.log" 2>&1
