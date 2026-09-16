@@ -14,6 +14,7 @@ from torchvision import transforms
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dataset.pytorch_dataset.pacs import PACSDataset
+from dataset.pytorch_dataset.officehome import OfficeHomeDataset
 from dataset.transform.forget_test_transform import get_forget_test_transform
 from dataset.transform.retain_test_transform import get_retain_test_transform
 from dataset.transform.test_transform import get_test_transform
@@ -53,7 +54,9 @@ def main():
     scen = args.unlearn_setting
     bs = getattr(args, "batch_size", 128)
 
-    full = PACSDataset(root_dir=args.data_dir, transform=None)
+    ds_name = str(getattr(args, 'dataset', 'pacs')).lower()
+    full = (OfficeHomeDataset if ds_name == 'officehome' else PACSDataset)(root_dir=args.data_dir, transform=None)
+    ds_label = 'OfficeHome' if ds_name == 'officehome' else 'PACS'
     n = len(full); tr = int(0.8 * n); te = int(0.1 * n)
     g = torch.Generator().manual_seed(args.seed)
     train_s, test_s, unseen_s = random_split(full, [tr, te, n - tr - te], generator=g)
@@ -74,11 +77,12 @@ def main():
     mia_l = L(mia_idx, get_test_transform())
     print(f"[*] {scen}: forget={len(f_idx)} retain={len(r_idx)} test={len(rt_idx)} mia_pool={len(mia_idx)}")
 
-    model = ModuleArchitecture(model_name=args.model_name, num_classes=7, pretrained=False,
+    model = ModuleArchitecture(model_name=args.model_name, num_classes=len(full.class_names), pretrained=False,
                                moe_layers=getattr(args, "moe_layers", None),
                                num_experts=args.num_experts, expert_depth=args.expert_depth,
                                expert_hidden_ratio=args.expert_hidden_ratio,
-                               gate_k=args.gate_k, device=dev)
+                               gate_k=args.gate_k, device=dev,
+                               mlp_ratio=getattr(args, 'mlp_ratio', 4.0), gate_norm=getattr(args, 'gate_norm', 'softmax'))
     ckpt = a.checkpoint or args.pretrained_model_path
     print(f"[*] checkpoint: {ckpt}")
     model.load_state_dict(torch.load(ckpt, map_location=dev))
@@ -91,13 +95,14 @@ def main():
     print(f"--> Metrics: RA: {ra*100:.2f}% | FA: {fa*100:.2f}% | TA: {ta*100:.2f}% | MIA: {m:.4f}")
 
     if not a.no_wandb:
-        stem = f"{a.baseline.lower()}_pacs_{scen}"
-        name = f"{a.baseline}__PACS__{scen}__{stem}__seed{args.seed}"
-        wandb.init(project="MoE", name=name, group="MainTable_PACS_seed42",
-                   tags=["main_table", "PACS", scen, a.baseline, "seed42"],
+        stem = f"{a.baseline.lower()}_{ds_name}_{scen}"
+        suffix = getattr(args, "study_name", "").split("__seed")[-1] if getattr(args, "study_name", "") else str(args.seed)
+        name = f"{a.baseline}__{ds_label}__{scen}__{stem}__seed{suffix}"
+        wandb.init(project="MoE", name=name, group=getattr(args, "wandb_group", f"MainTable_{ds_label}_seed42"),
+                   tags=["main_table", ds_label, scen, a.baseline, f"seed{args.seed}"],
                    config={**cfg, "baseline_name": a.baseline, "scenario": scen,
                            "config_name": stem, "config_path": a.config,
-                           "dataset_name": "PACS", "pretrained_model_path": ckpt})
+                           "dataset_name": ds_label, "pretrained_model_path": ckpt})
         wandb.log({"fa": fa, "ra": ra, "ta": ta, "mia": m, "epoch": 0})
         wandb.finish()
         print(f"[*] W&B: {name}")
