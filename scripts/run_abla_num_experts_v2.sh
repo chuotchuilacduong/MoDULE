@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Table "Effect of number of experts M" — chạy lại NHẤT QUÁN: mọi M cùng recipe base
-# (k=4, λ=0.1/0.25/0.1, cosine+clip, 100 epoch, batch 128) + ModULE unlearn DOMAIN (sketch) k_u=4, 20 epoch,
+# (k=4, λ=0.5/2.0/2.0, cosine+clip, 100 epoch -- đúng recipe pacs_M12_k4_seed42 của Table 7-10) + ModULE unlearn DOMAIN (sketch) k_u=4, 20 epoch,
 # không early-stop, kèm Eq.7 (RFO = Routing Overlap). SCEN=class để chạy thêm class (dog).
 #   PY=<python có torch> nohup bash scripts/run_abla_num_experts_v2.sh > nexp.nohup.log 2>&1 &
 set -uo pipefail

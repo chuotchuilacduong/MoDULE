@@ -24,9 +24,6 @@ beta: 1.0
 gamma: 1.0
 eta: 1.0
 run_eq7_diagnostics: true
-lambda_sparse: 0.1
-lambda_balance: 0.25
-lambda_div: 0.1
 pretrained_model_path: runs/_base_models/nexp_M4_k4_seed42/checkpoints/base_M4_k4_best.pt
 output_dir: runs/nexp_v2/class_M4/checkpoints
 study_name: nexp_unl_class_M4_ku4_k4_seed42

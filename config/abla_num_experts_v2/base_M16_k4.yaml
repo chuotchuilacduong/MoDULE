@@ -17,9 +17,9 @@ weight_decay: 0.05
 grad_clip_norm: 1.0
 lr_schedule: cosine
 warmup_epochs: 2
-lambda_sparse: 0.1
-lambda_balance: 0.25
-lambda_div: 0.1
+lambda_sparse: 0.5
+lambda_balance: 2.0
+lambda_div: 2.0
 ema_alpha: 0.9
 balance_estimator: minibatch
 diversity_objective: output_decorrelation
