@@ -12,7 +12,7 @@ unlearn_setting: domain
 forget_domains:
 - 3
 epochs: 20
-batch_size: 128
+batch_size: 64
 lr: 0.0001
 weight_decay: 0.0
 fa_threshold: -1.0
