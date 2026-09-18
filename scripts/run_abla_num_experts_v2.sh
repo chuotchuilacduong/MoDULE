@@ -6,6 +6,8 @@
 set -uo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PY:-python}; SCEN=${SCEN:-domain}; MS=${MS:-"4 8 12 16 24"}
+# KU=prop -> dùng config unlprop_* (k_u tỉ lệ M/3: 2/3/4/6/8) thay vì k_u=4 cố định
+PFX=unl; [ "${KU:-}" = "prop" ] && PFX=unlprop
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 R=results/nexp_v2; LOG=$R/logs; DONE=$R/done; mkdir -p "$LOG" "$DONE"
 [ -d dataset/data_folder/pacs ] || "$PY" -m dataset.downloader.pacs || exit 1
@@ -17,17 +19,17 @@ for M in $MS; do
     st=$?; [ $st -eq 0 ] && touch "$DONE/base_M$M" || { echo "[FAIL exit $st]"; grep -E "Traceback|Error" "$LOG/base_M$M.log" | tail -2; continue; }
     grep -oE "\[Final Metrics\].*" "$LOG/base_M$M.log" | tail -1
   fi
-  if [ -f "$DONE/unl_${SCEN}_M$M" ]; then echo "[skip] unl_${SCEN}_M$M"; continue; fi
-  echo "######## $(date '+%m-%d %T')  unl_${SCEN}_M$M"
-  "$PY" -m unlearn --config "config/abla_num_experts_v2/unl_${SCEN}_M${M}.yaml" > "$LOG/unl_${SCEN}_M$M.log" 2>&1
-  st=$?; [ $st -eq 0 ] && touch "$DONE/unl_${SCEN}_M$M" || { echo "[FAIL exit $st]"; grep -E "Traceback|Error" "$LOG/unl_${SCEN}_M$M.log" | tail -2; }
-  grep -oE "RA: [0-9.]+% \| FA: [0-9.]+% \| TA: [0-9.]+% \| MIA: [0-9.]+" "$LOG/unl_${SCEN}_M$M.log" | tail -1
-  grep -oE "Retain-forget routing overlap \(RFO\): [0-9.]+" "$LOG/unl_${SCEN}_M$M.log" | tail -1
+  if [ -f "$DONE/${PFX}_${SCEN}_M$M" ]; then echo "[skip] unl_${SCEN}_M$M"; continue; fi
+  echo "######## $(date '+%m-%d %T')  ${PFX}_${SCEN}_M$M"
+  "$PY" -m unlearn --config "config/abla_num_experts_v2/${PFX}_${SCEN}_M${M}.yaml" > "$LOG/${PFX}_${SCEN}_M$M.log" 2>&1
+  st=$?; [ $st -eq 0 ] && touch "$DONE/${PFX}_${SCEN}_M$M" || { echo "[FAIL exit $st]"; grep -E "Traceback|Error" "$LOG/${PFX}_${SCEN}_M$M.log" | tail -2; }
+  grep -oE "RA: [0-9.]+% \| FA: [0-9.]+% \| TA: [0-9.]+% \| MIA: [0-9.]+" "$LOG/${PFX}_${SCEN}_M$M.log" | tail -1
+  grep -oE "Retain-forget routing overlap \(RFO\): [0-9.]+" "$LOG/${PFX}_${SCEN}_M$M.log" | tail -1
 done
 echo ""; echo "### $(date '+%m-%d %T') NUM-EXPERTS ($SCEN) XONG ###"
 echo "M | TA | FA | RA | MIA | RFO(overlap)"
 for M in $MS; do
-  L="$LOG/unl_${SCEN}_M$M.log"; [ -f "$L" ] || continue
+  L="$LOG/${PFX}_${SCEN}_M$M.log"; [ -f "$L" ] || continue
   m=$(grep -oE "RA: [0-9.]+% \| FA: [0-9.]+% \| TA: [0-9.]+% \| MIA: [0-9.]+" "$L" | tail -1)
   rfo=$(grep -oE "Retain-forget routing overlap \(RFO\): [0-9.]+" "$L" | tail -1 | grep -oE "[0-9.]+$")
   echo "$M | $m | RFO=$rfo"
