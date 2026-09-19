@@ -7,7 +7,7 @@ set -uo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PY:-python}; SCEN=${SCEN:-domain}; MS=${MS:-"4 8 12 16 24"}
 # KU=prop -> dùng config unlprop_* (k_u tỉ lệ M/3: 2/3/4/6/8) thay vì k_u=4 cố định
-PFX=unl; [ "${KU:-}" = "prop" ] && PFX=unlprop
+PFX=unl; [ "${KU:-}" = "prop" ] && PFX=unlprop; [ "${KU:-}" = "half" ] && PFX=unlhalf   # half: k_u = M/2 (2/4/6/8/12)
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 R=results/nexp_v2; LOG=$R/logs; DONE=$R/done; mkdir -p "$LOG" "$DONE"
 [ -d dataset/data_folder/pacs ] || "$PY" -m dataset.downloader.pacs || exit 1
