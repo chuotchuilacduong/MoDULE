@@ -1,0 +1,32 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+unlearn_algo: l1_sparse
+unlearn_setting: class
+forget_classes:
+- 0
+epochs: 20
+batch_size: 128
+lr: 0.005
+weight_decay: 0.0
+fa_threshold: 0.1
+alpha: 1.0e-06
+pretrained_model_path: runs/_base_models/aaedd1da4d/checkpoints/learn_best.pt
+output_dir: runs/l1_sweep/lr0.005_g1em06/checkpoints
+study_name: l1sweep_pacs_class_lr0.005_g1em06
+wandb_group: L1Sweep_PACS_class
+wandb_tags:
+- l1_sweep
+- PACS
+- class
+- lr0.005
+- gamma1e-06
+baseline_name: l1-sparse
+scenario: class
+learning_rate: 0.0001
