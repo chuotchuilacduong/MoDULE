@@ -1,0 +1,32 @@
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+unlearn_algo: gradient_ascent
+unlearn_setting: domain
+forget_domains:
+- 3
+epochs: 20
+batch_size: 128
+lr: 1.0e-05
+weight_decay: 0.0
+fa_threshold: 0.1
+pretrained_model_path: runs/_base_models/aaedd1da4d/checkpoints/learn_best.pt
+output_dir: runs/ga_l1_gentle/ga_pacs_domain_lr1em05/checkpoints
+study_name: GA_gentle__pacs_domain__lr1e-05
+wandb_group: GA_L1_gentle
+wandb_tags:
+- gentle
+- experts_only
+- gradient_ascent
+- pacs_domain
+- lr1e-05
+baseline_name: Gradient Ascent
+scenario: domain
+learning_rate: 0.0001
+baseline_update_scope: experts

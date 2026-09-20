@@ -20,6 +20,7 @@ class L1_Sparse(Gradient_Ascent):
         num_epoch,
         
         alpha=0.1,
+        l1_mode="retain_ft",
         device="cuda"
     ):
         super().__init__(
@@ -37,6 +38,9 @@ class L1_Sparse(Gradient_Ascent):
             device=device
         )
         self.alpha = alpha
+        if l1_mode not in ('retain_ft', 'ascent'):
+            raise ValueError(f"l1_mode phải là 'retain_ft' hoặc 'ascent' (nhận {l1_mode!r})")
+        self.l1_mode = l1_mode
 
     def unlearn(self, fa_threshold, ckpt_path):
         """l1-sparse unlearning (Jia et al., 2023, "Model sparsity can simplify machine
@@ -55,12 +59,18 @@ class L1_Sparse(Gradient_Ascent):
         l1_params = [p for n, p in self.model.named_parameters()
                      if p.requires_grad and 'weight' in n and 'bn' not in n and 'norm' not in n]
 
+        ascent = (self.l1_mode == 'ascent')
+        n_l1 = sum(p.numel() for p in l1_params)
+        loader = self.forget_loader if ascent else self.retain_loader
+        print(f"[*] l1_sparse mode={self.l1_mode}: "
+              + ("-CE(forget) + alpha*mean|W| (công thức gốc của repo, ~GA)" if ascent
+                 else "CE(retain) + gamma_t*sum|W| (Jia et al. 2023)"))
         for epoch in range(self.num_epoch):
             epoch_start_time = time.time()
             total_loss = 0.0
-            gamma = self.alpha * (1.0 - epoch / max(self.num_epoch, 1))
+            gamma = self.alpha if ascent else self.alpha * (1.0 - epoch / max(self.num_epoch, 1))
 
-            for batch in self.retain_loader:
+            for batch in loader:
                 images = batch[0].to(self.device)
                 labels = batch[1].to(self.device)
 
@@ -68,13 +78,16 @@ class L1_Sparse(Gradient_Ascent):
                 logits, _ = self.model.forward_with_grad(images)
                 ce_loss = self.criteria(logits, labels)
                 l1_penalty = sum(p.abs().sum() for p in l1_params)
-                batch_loss = ce_loss + gamma * l1_penalty
+                if ascent:
+                    batch_loss = -ce_loss + gamma * l1_penalty / max(n_l1, 1)
+                else:
+                    batch_loss = ce_loss + gamma * l1_penalty
 
                 batch_loss.backward()
                 self.optimizer.step()
                 total_loss += batch_loss.item()
 
-            avg_loss = total_loss / max(len(self.retain_loader), 1)
+            avg_loss = total_loss / max(len(loader), 1)
             epoch_time = time.time() - epoch_start_time
             total_unlearn_time += epoch_time
 

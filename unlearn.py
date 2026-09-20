@@ -372,7 +372,19 @@ def main():
             mlp_ratio=getattr(args, 'mlp_ratio', 4.0),
             device=device
         )
-        model._set_grad_mode("unlearning")
+        # Phạm vi tham số được cập nhật cho các baseline KHÔNG tự đặt scope (FT/GA/l1/RL/SCRUB/SG/BE/BS):
+        #   experts (mặc định, = hành vi từ đầu của repo): chỉ MoE expert (~32% tham số) -- ModULE tự
+        #            đặt lại scope của nó; GRIP/SEUF/RepSelect/SSD tự unfreeze.
+        #   full   : toàn bộ mô hình (đúng nghĩa "full-model unlearning").
+        bscope = str(getattr(args, 'baseline_update_scope', 'experts'))
+        if bscope == 'full':
+            model._set_grad_mode("learning")
+        elif bscope == 'experts':
+            model._set_grad_mode("unlearning")
+        else:
+            raise ValueError(f"baseline_update_scope phải là 'experts' hoặc 'full' (nhận {bscope!r})")
+        n_tr = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"[*] baseline_update_scope={bscope}: trainable {n_tr/1e6:.2f}M tham số")
     else:
         raise ValueError(f"Unsupported model: {args.model_name}")
 
@@ -424,7 +436,7 @@ def main():
     if unlearn_algo in ['gradient_ascent', 'ga']:
         algo_wrapper = Gradient_Ascent(**algo_kwargs)
     elif unlearn_algo == 'l1_sparse':
-        algo_wrapper = L1_Sparse(**algo_kwargs, alpha=getattr(args, 'alpha', 0.1))
+        algo_wrapper = L1_Sparse(**algo_kwargs, alpha=getattr(args, 'alpha', 0.1), l1_mode=getattr(args, 'l1_mode', 'retain_ft'))
     elif unlearn_algo in ['random_labeling', 'rl']:
         algo_wrapper = Random_Labeling(**algo_kwargs)
     elif unlearn_algo == 'boundary_shrink':
