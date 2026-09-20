@@ -25,7 +25,7 @@ batch_size: 128
 lr: 0.0001
 weight_decay: 0.0
 fa_threshold: 0.1
-alpha: 0.1
+alpha: 5.0e-05
 pretrained_model_path: runs/_base_models/officehome_M8_k2_seed42/checkpoints/learn_best.pt
 output_dir: runs/main_table_officehome_seed42_c10d1/l1_sparse_officehome_class/checkpoints
 study_name: l1-sparse__OfficeHome__class__l1_sparse_officehome_class__seed42_c10

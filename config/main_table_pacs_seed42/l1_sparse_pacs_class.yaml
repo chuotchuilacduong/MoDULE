@@ -16,7 +16,7 @@ batch_size: 128
 lr: 0.0001
 weight_decay: 0.0
 fa_threshold: 0.1
-alpha: 0.1
+alpha: 5.0e-05
 pretrained_model_path: runs/_base_models/aaedd1da4d/checkpoints/learn_best.pt
 output_dir: runs/main_table_pacs_seed42/l1_sparse_pacs_class/checkpoints
 study_name: l1-sparse__PACS__class__l1_sparse_pacs_class__seed42

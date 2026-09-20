@@ -25,7 +25,7 @@ batch_size: 128
 lr: 0.0001
 weight_decay: 0.0
 fa_threshold: 0.1
-alpha: 0.1
+alpha: 5.0e-05
 pretrained_model_path: runs/_base_models/cifar100_M8_k2_seed42/checkpoints/learn_best.pt
 output_dir: runs/main_table_cifar100_seed42_c10/l1_sparse_cifar100_class/checkpoints
 study_name: l1-sparse__CIFAR100__class__l1_sparse_cifar100_class__seed42_c10
