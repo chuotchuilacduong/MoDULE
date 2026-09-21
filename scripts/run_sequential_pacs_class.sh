@@ -18,6 +18,8 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 SETTING=class
 BASE=runs/_base_models/aaedd1da4d/checkpoints/learn_best.pt
 [ -f "$BASE" ] || { echo "[!] thiếu base checkpoint: $BASE"; exit 1; }
+BASE12=runs/_base_models/pacs_M12_k4_seed42/checkpoints/pacs_module_base_M12_k4_best.pt
+[ -f "$BASE12" ] || { echo "[!] thiếu base M12/k4 cho ModULE: $BASE12"; exit 1; }
 
 ALGOS=(module salun boundary_shrink)
 
