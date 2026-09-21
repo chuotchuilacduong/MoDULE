@@ -24,21 +24,45 @@ class PACSDataset(Dataset):
         self.class_names = sorted([c for c in os.listdir(first_domain) if os.path.isdir(os.path.join(first_domain, c))])
         self.class_to_idx = {c: i for i, c in enumerate(self.class_names)}
 
-        # traverse the folder structure and catalog every image
-        for domain in self.domain_names:
-            domain_idx = self.domain_to_idx[domain]
-            for class_name in self.class_names:
-                class_idx = self.class_to_idx[class_name]
-                class_dir = os.path.join(root_dir, domain, class_name)
-                
-                if not os.path.exists(class_dir):
-                    continue
-                    
-                for img_name in os.listdir(class_dir):
-                    if img_name.lower().endswith(('.png', '.jpg', '.jpeg')):
-                        self.image_paths.append(os.path.join(class_dir, img_name))
-                        self.labels.append(class_idx)
-                        self.domains.append(domain_idx)
+        # the train/test/unseen split is `random_split` over the *index* of this
+        # list, so the enumeration order must be identical on every machine or a
+        # checkpoint trained elsewhere gets a different split (test images that
+        # were in its train set -> inflated TA). os.listdir order is filesystem
+        # dependent, so the order used to train the released base models is
+        # frozen in dataset/pacs_file_order.txt and replayed here; without it we
+        # fall back to sorted names (deterministic, but NOT the base models' split).
+        order_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pacs_file_order.txt")
+        frozen = None
+        if os.path.exists(order_file):
+            frozen = [l.strip() for l in open(order_file) if l.strip()]
+            missing = [r for r in frozen if not os.path.exists(os.path.join(root_dir, r))]
+            if missing:
+                print(f"[PACSDataset] {len(missing)} paths of pacs_file_order.txt missing under {root_dir} (e.g. {missing[0]}); falling back to sorted listdir")
+                frozen = None
+
+        if frozen is not None:
+            for rel in frozen:
+                domain, class_name, _ = rel.split("/")
+                self.image_paths.append(os.path.join(root_dir, rel))
+                self.labels.append(self.class_to_idx[class_name])
+                self.domains.append(self.domain_to_idx[domain])
+            print(f"[PACSDataset] {len(frozen)} images in the frozen order of {os.path.basename(order_file)}")
+        else:
+            # traverse the folder structure and catalog every image
+            for domain in self.domain_names:
+                domain_idx = self.domain_to_idx[domain]
+                for class_name in self.class_names:
+                    class_idx = self.class_to_idx[class_name]
+                    class_dir = os.path.join(root_dir, domain, class_name)
+
+                    if not os.path.exists(class_dir):
+                        continue
+
+                    for img_name in sorted(os.listdir(class_dir)):
+                        if img_name.lower().endswith(('.png', '.jpg', '.jpeg')):
+                            self.image_paths.append(os.path.join(class_dir, img_name))
+                            self.labels.append(class_idx)
+                            self.domains.append(domain_idx)
 
     def __len__(self):
         return len(self.image_paths)
