@@ -113,9 +113,30 @@ class Gradient_Ascent:
 
         torch.save(self.model.state_dict(), f"{ckpt_path}.pt")
 
+
+    def _step_early_stop(self, fa_threshold, step, epoch, ckpt_path):
+        """Kiểm tra FA sau mỗi `eval_every_steps` bước. Trả về True nếu cần dừng."""
+        n = int(getattr(self, "eval_every_steps", 0) or 0)
+        if n <= 0 or fa_threshold < 0 or step % n != 0:
+            return False
+        from metric.fa import forget_acc
+        fa_score = forget_acc(self.model, self.forget_test_loader, self.device)
+        self.model.train()
+        print(f"    [step {step}] FA: {fa_score*100:.2f}%")
+        wandb.log({"step": step, "fa_step": fa_score})
+        if fa_score <= fa_threshold:
+            fa_score, ra_score, ta_score, mia_score = self.evaluate()
+            print(f"--> [step {step}, epoch {epoch+1}] early stop (FA <= {fa_threshold})")
+            print(f"--> Metrics: RA: {ra_score*100:.2f}% | FA: {fa_score*100:.2f}% | TA: {ta_score*100:.2f}% | MIA: {mia_score:.4f}")
+            wandb.log({"epoch": epoch+1, "stop_step": step, "ra": ra_score, "fa": fa_score, "ta": ta_score, "mia": mia_score})
+            torch.save(self.model.state_dict(), f"{ckpt_path}_stop_step{step}.pt")
+            return True
+        return False
+
     def unlearn(self, fa_threshold, ckpt_path):
         self.model.train()
-        
+        step = 0
+        stopped = False
         for epoch in range(self.num_epoch):
             total_loss = 0.0
             
@@ -134,6 +155,12 @@ class Gradient_Ascent:
                 self.optimizer.step()
                 
                 total_loss += loss.item()
+                step += 1
+                if self._step_early_stop(fa_threshold, step, epoch, ckpt_path):
+                    stopped = True
+                    break
+            if stopped:
+                break
                 
             avg_loss = total_loss / len(self.forget_loader)
             

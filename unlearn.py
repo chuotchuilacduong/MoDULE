@@ -594,6 +594,8 @@ def main():
               f"thay cho toàn bộ unseen split ({len(unseen_subset)} mẫu)")
     # optional speed knob; defaults keep the original per-epoch evaluation
     algo_wrapper.eval_every = getattr(args, 'eval_every', 1)
+    # early-stop theo BƯỚC cho GA/l1 (0 = theo epoch như cũ)
+    algo_wrapper.eval_every_steps = int(getattr(args, 'eval_every_steps', 0))
     algo_wrapper.eval_full_below = getattr(args, 'eval_full_below', 0.15)
 
     ckpt_prefix = os.path.join(args.output_dir, f"unlearned_{unlearn_algo}_{yaml_filename}")

@@ -56,6 +56,8 @@ class L1_Sparse(Gradient_Ascent):
         """
         self.model.train()
         total_unlearn_time = 0.0
+        step = 0
+        stopped = False
         l1_params = [p for n, p in self.model.named_parameters()
                      if p.requires_grad and 'weight' in n and 'bn' not in n and 'norm' not in n]
 
@@ -86,6 +88,12 @@ class L1_Sparse(Gradient_Ascent):
                 batch_loss.backward()
                 self.optimizer.step()
                 total_loss += batch_loss.item()
+                step += 1
+                if self._step_early_stop(fa_threshold, step, epoch, ckpt_path):
+                    stopped = True
+                    break
+            if stopped:
+                break
 
             avg_loss = total_loss / max(len(loader), 1)
             epoch_time = time.time() - epoch_start_time
