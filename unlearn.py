@@ -220,9 +220,23 @@ def main():
         forget_classes = getattr(args, 'forget_classes', [0])
         if not isinstance(forget_classes, list):
             forget_classes = [forget_classes]
-            
+        # sequential class removal (see sequential_unlearn.py): classes already
+        # forgotten in earlier stages. they are out of the retain and test sets and
+        # they stay in the *evaluation* forget set, so FA/MIA are cumulative like the
+        # growing forget ratio in CoUn's sequential setting -- but the algorithm is
+        # only fed the classes of the current request (a stage cannot re-use data
+        # it was asked to delete before).
+        prev_forget_classes = getattr(args, 'prev_forget_classes', None) or []
+        if not isinstance(prev_forget_classes, list):
+            prev_forget_classes = [prev_forget_classes]
+        prev_forget_classes = [c for c in prev_forget_classes if c not in forget_classes]
+        all_forget_classes = set(forget_classes) | set(prev_forget_classes)
+
         print(f"[*] target classes to unlearn: {forget_classes}")
+        if prev_forget_classes:
+            print(f"[*] previously unlearned classes (excluded from retain/test, kept in forget eval): {prev_forget_classes}")
         forget_train_indices, retain_train_indices, retain_test_indices = [], [], []
+        prev_forget_indices = []
         # non-member side of the MIA: held-out samples of the *forget* classes only.
         # the full unseen split covers every class, and logit/loss statistics are
         # strongly class-dependent, so an unmatched pool lets the attack separate
@@ -233,32 +247,45 @@ def main():
             label = full_dataset.labels[idx]
             if label in forget_classes:
                 forget_train_indices.append(idx)
+            elif label in prev_forget_classes:
+                prev_forget_indices.append(idx)
             else:
                 retain_train_indices.append(idx)
 
         for idx in test_subset.indices:
             label = full_dataset.labels[idx]
-            if label not in forget_classes:
+            if label not in all_forget_classes:
                 retain_test_indices.append(idx)
             else:
                 mia_unseen_indices.append(idx)
 
         for idx in unseen_subset.indices:
-            if full_dataset.labels[idx] in forget_classes:
+            if full_dataset.labels[idx] in all_forget_classes:
                 mia_unseen_indices.append(idx)
 
         forget_subset = Subset(full_dataset, forget_train_indices)
+        forget_eval_subset = Subset(full_dataset, forget_train_indices + prev_forget_indices)
         retain_subset = Subset(full_dataset, retain_train_indices)
         test_subset = Subset(full_dataset, retain_test_indices) 
-        print(f"[*] split sizes -> retain: {len(retain_subset)} | forget: {len(forget_subset)} | test: {len(test_subset)} | unseen: {len(unseen_subset)}")
+        print(f"[*] split sizes -> retain: {len(retain_subset)} | forget: {len(forget_subset)} "
+              f"(+{len(prev_forget_indices)} previously forgotten, eval only) | test: {len(test_subset)} | unseen: {len(unseen_subset)}")
 
     elif unlearn_setting == 'domain':
         forget_domains = getattr(args, 'forget_domains', [0])
         if not isinstance(forget_domains, list):
             forget_domains = [forget_domains]
-            
+        # sequential domain removal: same semantics as prev_forget_classes above.
+        prev_forget_domains = getattr(args, 'prev_forget_domains', None) or []
+        if not isinstance(prev_forget_domains, list):
+            prev_forget_domains = [prev_forget_domains]
+        prev_forget_domains = [d for d in prev_forget_domains if d not in forget_domains]
+        all_forget_domains = set(forget_domains) | set(prev_forget_domains)
+
         print(f"[*] target domains to unlearn: {forget_domains}")
+        if prev_forget_domains:
+            print(f"[*] previously unlearned domains (excluded from retain/test, kept in forget eval): {prev_forget_domains}")
         forget_train_indices, retain_train_indices, retain_test_indices = [], [], []
+        prev_forget_indices = []
         # non-member side of the MIA, restricted to the forget domains (see the
         # class branch above for why the pool has to be matched).
         mia_unseen_indices = []
@@ -267,31 +294,40 @@ def main():
             domain = get_domain(full_dataset, idx)
             if domain in forget_domains:
                 forget_train_indices.append(idx)
+            elif domain in prev_forget_domains:
+                prev_forget_indices.append(idx)
             else:
                 retain_train_indices.append(idx)
 
         for idx in test_subset.indices:
             domain = get_domain(full_dataset, idx)
-            if domain not in forget_domains:
+            if domain not in all_forget_domains:
                 retain_test_indices.append(idx)
             else:
                 mia_unseen_indices.append(idx)
 
         for idx in unseen_subset.indices:
-            if get_domain(full_dataset, idx) in forget_domains:
+            if get_domain(full_dataset, idx) in all_forget_domains:
                 mia_unseen_indices.append(idx)
 
         forget_subset = Subset(full_dataset, forget_train_indices)
+        forget_eval_subset = Subset(full_dataset, forget_train_indices + prev_forget_indices)
         retain_subset = Subset(full_dataset, retain_train_indices)
         test_subset = Subset(full_dataset, retain_test_indices) 
-        print(f"[*] split sizes -> retain: {len(retain_subset)} | forget: {len(forget_subset)} | test: {len(test_subset)} | unseen: {len(unseen_subset)}")
+        print(f"[*] split sizes -> retain: {len(retain_subset)} | forget: {len(forget_subset)} "
+              f"(+{len(prev_forget_indices)} previously forgotten, eval only) | test: {len(test_subset)} | unseen: {len(unseen_subset)}")
         
     else:
         raise ValueError(f"Unsupported unlearning setting: {unlearn_setting}")
 
+    # what FA/MIA are measured on. only the sequential class/domain settings make
+    # this larger than the forget set the algorithm trains on.
+    if unlearn_setting == 'random':
+        forget_eval_subset = forget_subset
+
     forget_train_loader = DataLoader(ApplyTransform(forget_subset, get_forget_train_transform()), batch_size=args.batch_size, shuffle=True, num_workers=4)
     retain_train_loader = DataLoader(ApplyTransform(retain_subset, get_retain_train_transform()), batch_size=args.batch_size, shuffle=True, num_workers=4)
-    forget_test_loader = DataLoader(ApplyTransform(forget_subset, get_forget_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
+    forget_test_loader = DataLoader(ApplyTransform(forget_eval_subset, get_forget_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
     retain_test_loader = DataLoader(ApplyTransform(retain_subset, get_retain_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
     test_loader = DataLoader(ApplyTransform(test_subset, get_test_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)
     unseen_loader = DataLoader(ApplyTransform(unseen_subset, get_unseen_transform()), batch_size=args.batch_size, shuffle=False, num_workers=4)

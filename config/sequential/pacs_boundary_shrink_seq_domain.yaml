@@ -1,0 +1,37 @@
+# Sequential domain removal on PACS -- BoundaryShrink. one domain per request, 3 requests: 3 sketch (the main-table target) ->
+# 1 cartoon -> 0 art_painting, leaving 2 photo.
+# (PACS domains: 0 art_painting 1 cartoon 2 photo 3 sketch)
+# fa_threshold: -1 disables early stopping (every stage runs the full 20 epochs).
+#   python sequential_unlearn.py --config config/sequential/pacs_boundary_shrink_seq_domain.yaml --retrain
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+unlearn_algo: boundary_shrink
+unlearn_setting: domain
+epochs: 20
+batch_size: 128
+lr: 0.0001
+weight_decay: 0.0
+fa_threshold: -1
+epsilon: 0.1
+pretrained_model_path: runs/_base_models/aaedd1da4d/checkpoints/learn_best.pt
+study_name: BoundaryShrink__PACS__seqdomain__pacs_boundary_shrink_seq_domain__seed42
+wandb_group: Sequential_PACS_domain_seed42
+wandb_tags: [sequential, PACS, domain, BoundaryShrink, seed42]
+baseline_name: BoundaryShrink
+scenario: domain
+sequential:
+  stages:
+  - [3]
+  - [1]
+  - [0]
+  forget_mode: new
+  output_root: runs/sequential/pacs_boundary_shrink_seq_domain
+  retrain_config: config/main_table_pacs_seed42/retrain_pacs_domain.yaml
+  retrain_output_root: runs/sequential/pacs_retrain_domain

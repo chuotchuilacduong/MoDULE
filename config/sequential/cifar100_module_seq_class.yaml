@@ -1,0 +1,53 @@
+# Sequential class removal -- class-wise version of CoUn's "Sequential Unlearning"
+# (NeurIPS 2025, Fig. 6): 5 stages, 10 classes (= 10% of CIFAR-100) removed per
+# stage, forget ratio 10% -> 50%. Each stage starts from the previous stage's
+# checkpoint; FA/MIA are evaluated on every class forgotten so far.
+#   python sequential_unlearn.py --config config/sequential/cifar100_module_seq_class.yaml --retrain
+seed: 42
+dataset: cifar100
+data_dir: ./dataset/data_folder/cifar100
+model_name: module_small_patch16_224
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+unlearn_algo: module
+unlearn_setting: class
+epochs: 20
+batch_size: 128
+lr: 0.0001
+weight_decay: 0.0
+fa_threshold: -1   # no FA early stopping
+k_u: 4
+selection_option: diff
+update_scope: selected_experts_and_head
+alpha: 1.0
+beta: 1.0
+gamma: 1.0
+eta: 1.0
+run_eq7_diagnostics: false
+pretrained_model_path: runs/_base_models/cifar100_M8_k2_seed42/checkpoints/learn_best.pt
+study_name: ModULE__CIFAR100__seqclass__module_cifar100_seq_class__seed42
+wandb_group: SequentialClass_CIFAR100_seed42
+wandb_tags:
+- sequential
+- CIFAR100
+- class
+- ModULE
+- seed42
+baseline_name: ModULE
+scenario: class
+sequential:
+  # 10 classes per request, 5 requests: classes 0-9, 10-19, ..., 40-49
+  classes_per_stage: 10
+  num_stages: 5
+  # new: the algorithm only sees the classes of the current request (previously
+  #      forgotten classes are excluded from retain/test and still evaluated).
+  # cumulative: the algorithm is fed every class forgotten so far.
+  forget_mode: new
+  output_root: runs/sequential/cifar100_module_seq_class
+  # template for the per-stage Retrain reference (forget_classes is overwritten
+  # with the cumulative set); used with --retrain / --retrain-only.
+  retrain_output_root: runs/sequential/cifar100_retrain_class
+  retrain_config: config/main_table_cifar100_seed42/retrain_cifar100_class.yaml

@@ -1,0 +1,47 @@
+# Sequential class removal on PACS -- ModULE. one class per request, 5 requests (same number of stages as CoUn's Fig. 6,
+# but a whole class instead of 10% of the data): 0 dog, 1 elephant, 2 giraffe,
+# 3 guitar, 4 horse -> 1/7 ... 5/7 of the training data forgotten.
+# (PACS classes: 0 dog 1 elephant 2 giraffe 3 guitar 4 horse 5 house 6 person)
+# fa_threshold: -1 disables early stopping (every stage runs the full 20 epochs).
+#   python sequential_unlearn.py --config config/sequential/pacs_module_seq_class.yaml --retrain
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+moe_layers: FFFFFFFFFFSS
+num_experts: 8
+gate_k: 2
+expert_depth: 2
+expert_hidden_ratio: 2
+unlearn_algo: module
+unlearn_setting: class
+epochs: 20
+batch_size: 128
+lr: 0.0001
+weight_decay: 0.0
+fa_threshold: -1
+k_u: 4
+selection_option: diff
+update_scope: selected_experts_and_head
+alpha: 1.0
+beta: 1.0
+gamma: 1.0
+eta: 1.0
+run_eq7_diagnostics: false
+pretrained_model_path: runs/_base_models/aaedd1da4d/checkpoints/learn_best.pt
+study_name: ModULE__PACS__seqclass__pacs_module_seq_class__seed42
+wandb_group: Sequential_PACS_class_seed42
+wandb_tags: [sequential, PACS, class, ModULE, seed42]
+baseline_name: ModULE
+scenario: class
+sequential:
+  stages:
+  - [0]
+  - [1]
+  - [2]
+  - [3]
+  - [4]
+  forget_mode: new
+  output_root: runs/sequential/pacs_module_seq_class
+  retrain_config: config/main_table_pacs_seed42/retrain_pacs_class.yaml
+  retrain_output_root: runs/sequential/pacs_retrain_class
