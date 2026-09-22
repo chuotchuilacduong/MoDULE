@@ -49,5 +49,5 @@ sequential:
   forget_mode: new
   output_root: runs/sequential/pacs_module_seq_domain_v2
   kd_teacher: base
-  retrain_config: config/main_table_pacs_seed42/retrain_pacs_domain.yaml
-  retrain_output_root: runs/sequential/pacs_retrain_domain
+  retrain_config: config/sequential/pacs_retrain_M12_k4_domain.yaml
+  retrain_output_root: runs/sequential/pacs_retrain_M12_domain

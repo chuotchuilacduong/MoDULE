@@ -235,6 +235,12 @@ def main():
         k_u=getattr(args, 'k_u', 4),
         domain_names=getattr(full_dataset, 'domain_names', None),
         class_names=getattr(full_dataset, 'class_names', None),
+        # same training knobs learn.py exposes, so a Retrain reference can follow
+        # the exact recipe of its base (e.g. the M=12/k=4 base needs clipping +
+        # cosine LR to stay stable). defaults keep the old behaviour.
+        grad_clip_norm=getattr(args, 'grad_clip_norm', None),
+        lr_schedule=getattr(args, 'lr_schedule', None),
+        warmup_epochs=getattr(args, 'warmup_epochs', 1),
         device=device,
     )
 
