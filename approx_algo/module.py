@@ -1030,7 +1030,13 @@ class Module(Gradient_Ascent):
         return filtered_loader
 
     def unlearn(self, fa_threshold, ckpt_path):
-        origin_model = copy.deepcopy(self.model)
+        # KD teacher for the retain set. default: the model as it is when this
+        # call starts. `kd_teacher` (unlearn.py: kd_teacher_path) overrides it,
+        # used by sequential_unlearn.py so every stage distils from the ORIGINAL
+        # base model instead of the already-unlearned checkpoint of the previous
+        # stage (otherwise the damage of earlier stages is preserved by KD).
+        teacher = getattr(self, 'kd_teacher', None)
+        origin_model = teacher if teacher is not None else copy.deepcopy(self.model)
         origin_model.eval()
         for param in origin_model.parameters():
             param.requires_grad = False

@@ -428,6 +428,18 @@ def main():
         raise FileNotFoundError(f"Invalid path: {args.pretrained_model_path}")
     
     model.load_state_dict(torch.load(args.pretrained_model_path, map_location=device))
+    # optional separate KD teacher (ModULE only): same architecture, other weights.
+    kd_teacher = None
+    kd_teacher_path = getattr(args, 'kd_teacher_path', None)
+    if kd_teacher_path:
+        if not os.path.exists(kd_teacher_path):
+            raise FileNotFoundError(f"kd_teacher_path not found: {kd_teacher_path}")
+        kd_teacher = copy.deepcopy(model)
+        kd_teacher.load_state_dict(torch.load(kd_teacher_path, map_location=device))
+        kd_teacher.eval()
+        for p_ in kd_teacher.parameters():
+            p_.requires_grad = False
+        print(f"[*] KD teacher: {kd_teacher_path}")
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     # SPM's forward() returns log-probabilities (see architecture/spm.py), so
     # it needs NLLLoss rather than CrossEntropyLoss (which would apply its
@@ -533,6 +545,7 @@ def main():
             router_match_k_u=getattr(args, 'router_match_k_u', 1),
         )
     elif unlearn_algo == 'seuf':
+        algo_wrapper.kd_teacher = kd_teacher
         algo_wrapper = SEUF(
             **algo_kwargs,
             seuf_M=getattr(args, 'seuf_M', 1),

@@ -214,6 +214,11 @@ def main():
             cfg_path = os.path.join(cfg_dir, f"{tag}.yaml")
             with open(cfg_path, "w") as f:
                 yaml.safe_dump(stage_cfg, f, sort_keys=False)
+            # sequential.kd_teacher: base -> every stage distils the retain set from
+            # the original base model (unlearn.py: kd_teacher_path); prev (default)
+            # -> from the checkpoint the stage starts from (unlearn.py default).
+            if str(seq_cfg.get("kd_teacher", "prev")) == "base":
+                stage_cfg["kd_teacher_path"] = base_ckpt
 
             # unlearn.py names the checkpoint after the algo and the yaml stem
             final_ckpt = os.path.join(stage_cfg["output_dir"], f"unlearned_{unlearn_algo}_{tag}.pt")
