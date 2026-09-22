@@ -544,8 +544,8 @@ def main():
             # k_u per run would not be comparable across rows. override in yaml.
             router_match_k_u=getattr(args, 'router_match_k_u', 1),
         )
-    elif unlearn_algo == 'seuf':
         algo_wrapper.kd_teacher = kd_teacher
+    elif unlearn_algo == 'seuf':
         algo_wrapper = SEUF(
             **algo_kwargs,
             seuf_M=getattr(args, 'seuf_M', 1),

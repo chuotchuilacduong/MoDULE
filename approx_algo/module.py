@@ -1037,6 +1037,7 @@ class Module(Gradient_Ascent):
         # stage (otherwise the damage of earlier stages is preserved by KD).
         teacher = getattr(self, 'kd_teacher', None)
         origin_model = teacher if teacher is not None else copy.deepcopy(self.model)
+        print(f"[*] KD teacher: {'external (kd_teacher_path)' if teacher is not None else 'copy of the model at unlearn start'}")
         origin_model.eval()
         for param in origin_model.parameters():
             param.requires_grad = False
