@@ -39,8 +39,11 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 # same lines the collect_* scripts parse; every approx_algo prints the first one
 # per epoch, retrain_baseline.py (Module.learn) prints the second once.
+# most algorithms print "--> Metrics: RA: x% | FA: x% | TA: x% | MIA: x", GRIP prints
+# "[GRIP-B] epoch [k/N] | loss: .. | ra: x% | fa: x% | ta: x% | mia: x" -- same order,
+# so one case-insensitive pattern on the "ra | fa | ta | mia" tail covers both.
 UNLEARN_METRICS_RE = re.compile(
-    r"Metrics:\s*RA:\s*([\d.]+)%\s*\|\s*FA:\s*([\d.]+)%\s*\|\s*TA:\s*([\d.]+)%\s*\|\s*MIA:\s*([\d.]+)"
+    r"\bRA:\s*([\d.]+)%\s*\|\s*FA:\s*([\d.]+)%\s*\|\s*TA:\s*([\d.]+)%\s*\|\s*MIA:\s*([\d.]+)", re.IGNORECASE
 )
 RETRAIN_METRICS_RE = re.compile(
     r"\[Final Metrics\]\s*ra:\s*([\d.]+)%\s*\|\s*fa:\s*([\d.]+)%\s*\|\s*ta:\s*([\d.]+)%\s*\|\s*mia:\s*([\d.]+)"
@@ -65,6 +68,12 @@ def parse_last_metrics(log_path, pattern):
     return {"ra": ra, "fa": fa, "ta": ta, "mia": mia * 100.0}
 
 
+def run_finished(log_path):
+    """unlearn.py prints this only after the algorithm returned; Module saves a
+    checkpoint after *every* epoch, so a checkpoint alone does not mean done."""
+    return os.path.exists(log_path) and "unlearning complete" in open(log_path, errors="replace").read()
+
+
 def parse_time(log_path):
     if not os.path.exists(log_path):
         return None
@@ -83,8 +92,12 @@ def run_logged(cmd, log_path, dry_run):
         cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
     ) as proc:
         for line in proc.stdout:
+            # flush per line: with nohup / a redirected stdout both streams are
+            # block-buffered, which hides progress from tail -f for minutes
             sys.stdout.write(line)
+            sys.stdout.flush()
             log.write(line)
+            log.flush()
         proc.wait()
         return proc.returncode
 
@@ -133,8 +146,9 @@ def main():
         raise ValueError("sequential_unlearn.py is for unlearn_setting: class | domain")
     # unlearn.py / retrain_baseline.py keys for the current request and for what
     # earlier stages already removed
-    forget_key = f"forget_{setting}s"          # forget_classes | forget_domains
-    prev_key = f"prev_forget_{setting}s"       # prev_forget_classes | prev_forget_domains
+    plural = {"class": "classes", "domain": "domains"}[setting]
+    forget_key = f"forget_{plural}"            # forget_classes | forget_domains
+    prev_key = f"prev_forget_{plural}"         # prev_forget_classes | prev_forget_domains
     seq_cfg = base_cfg.pop("sequential", None)
     if not seq_cfg:
         raise ValueError("config needs a `sequential:` block (stages / output_root ...)")
@@ -175,7 +189,7 @@ def main():
     print("=" * 40)
     print(f"[*] sequential {setting} removal: {len(stages)} stage(s), forget_mode={forget_mode}, algo={unlearn_algo}")
     for t, s in enumerate(stages, 1):
-        print(f"    stage {t}: remove {setting}s {s}")
+        print(f"    stage {t}: remove {plural} {s}")
     print(f"[*] output root: {out_root}")
     if retrain_tmpl is not None:
         print(f"[*] retrain root (shared): {retrain_root}")
@@ -188,7 +202,7 @@ def main():
         tag = f"stage_{t}"
         print("\n" + "=" * 40)
         print(f"[*] stage {t}/{len(stages)} | new: {new_classes} | cumulative: {cum_classes} "
-              f"({len(cum_classes)} {setting}s)")
+              f"({len(cum_classes)} {plural})")
 
         row = {"stage": t, "new_ids": " ".join(map(str, new_classes)),
                "num_forgot": len(cum_classes)}
@@ -213,7 +227,7 @@ def main():
             stage_cfg["wandb_tags"] = list(base_cfg.get("wandb_tags") or []) + [f"sequential_{setting}", tag]
             stage_cfg.setdefault("wandb_group", f"Sequential_{stem}")
             stage_cfg["sequential_stage"] = t
-            stage_cfg[f"sequential_cumulative_{setting}s"] = list(cum_classes)
+            stage_cfg[f"sequential_cumulative_{plural}"] = list(cum_classes)
             stage_cfg["config_path"] = os.path.join(cfg_dir, f"{tag}.yaml")
 
             cfg_path = os.path.join(cfg_dir, f"{tag}.yaml")
@@ -224,7 +238,8 @@ def main():
             final_ckpt = os.path.join(stage_cfg["output_dir"], f"unlearned_{unlearn_algo}_{tag}.pt")
             log_path = os.path.join(log_dir, f"{tag}.log")
 
-            done = os.path.exists(final_ckpt) and parse_last_metrics(log_path, UNLEARN_METRICS_RE) is not None
+            done = (os.path.exists(final_ckpt) and run_finished(log_path)
+                    and parse_last_metrics(log_path, UNLEARN_METRICS_RE) is not None)
             if done and not cmd_args.force:
                 print(f"[*] stage {t} already finished ({final_ckpt}); skipping (use --force to redo)")
             else:
