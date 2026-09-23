@@ -1,0 +1,43 @@
+# Joint (non-sequential) class unlearning on PACS -- module, forget classes [0].
+# Every request starts INDEPENDENTLY from the original base checkpoint; identical
+# hyper-parameters to the reused 1-class run (config from runs/sequential/pacs_module_seq_class/configs/stage_1.yaml).
+# k_u stays 4 for every request: experts are selected from the UNION of the forget classes.
+seed: 42
+dataset: pacs
+data_dir: ./dataset/data_folder/pacs
+model_name: module_small_patch16_224
+moe_layers: FFFFFFFFFFSS
+num_experts: 12
+gate_k: 4
+expert_depth: 2
+expert_hidden_ratio: 2
+unlearn_algo: module
+unlearn_setting: class
+epochs: 20
+batch_size: 128
+lr: 0.0001
+weight_decay: 0.0
+fa_threshold: -1
+log_eval_every_steps: 0
+k_u: 4
+selection_option: diff
+update_scope: selected_experts_and_head
+alpha: 1.0
+beta: 0.25
+gamma: 0.25
+eta: 0.25
+lambda_sparse: 0.1
+lambda_balance: 0.25
+lambda_div: 0.1
+run_eq7_diagnostics: false
+router_match_log_every: 5
+pretrained_model_path: runs/_base_models/pacs_M12_k4_seed42/checkpoints/pacs_module_base_M12_k4_best.pt
+study_name: ModULE__PACS__jointclass__c1__seed42
+wandb_group: JointClass_PACS_seed42
+wandb_tags: [joint_class, PACS, class, ModULE, seed42, c1]
+baseline_name: ModULE
+scenario: class
+forget_classes: [0]
+prev_forget_classes: []
+output_dir: runs/joint_class/module_joint_c1/checkpoints
+config_path: config/joint_class/module_joint_c1.yaml
